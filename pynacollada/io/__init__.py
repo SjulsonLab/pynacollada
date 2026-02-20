@@ -24,6 +24,16 @@ from .lfp import (
     GetLFP,
     get_lfp,
 )
+from .session import (
+    ClearCurrentSession,
+    GetCurrentSession,
+    SessionContext,
+    SetCurrentSession,
+    clear_current_session,
+    get_current_session,
+    open_session,
+    set_current_session,
+)
 
 __all__ = [
     "load_binary",
@@ -42,4 +52,12 @@ __all__ = [
     "LoadPar",
     "get_lfp",
     "GetLFP",
+    "SessionContext",
+    "open_session",
+    "set_current_session",
+    "get_current_session",
+    "clear_current_session",
+    "SetCurrentSession",
+    "GetCurrentSession",
+    "ClearCurrentSession",
 ]
