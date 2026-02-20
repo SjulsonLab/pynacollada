@@ -5,6 +5,8 @@ import pynapple as nap
 
 from pynacollada import (
     SWRDetectorParams,
+    detect_oscillatory_events,
+    detect_ripples_nss,
     compute_ripple_event_stats,
     detect_swr,
     detect_swr_jlong,
@@ -118,3 +120,29 @@ def test_empty_epoch_and_empty_stats() -> None:
 
     stats = ripple_stats(lfp, out)
     assert stats.empty
+
+
+def test_archive_backed_nss_detection_api() -> None:
+    lfp, _ = _make_synthetic_lfp(duration_s=10.0)
+    lfp_single = lfp[:, 0]
+    epoch = lfp.time_support
+
+    ep1, peaks1 = detect_oscillatory_events(
+        lfp=lfp_single,
+        epoch=epoch,
+        freq_band=(100.0, 300.0),
+        thres_band=(0.5, 15.0),
+        duration_band=(0.01, 0.25),
+        min_inter_duration=0.01,
+    )
+    ep2, peaks2 = detect_ripples_nss(
+        lfp=lfp_single,
+        epoch=epoch,
+        freq_band=(100.0, 300.0),
+        thres_band=(0.5, 15.0),
+        duration_band=(0.01, 0.25),
+        min_inter_duration=0.01,
+    )
+
+    np.testing.assert_allclose(ep1.as_units("s").values, ep2.as_units("s").values)
+    np.testing.assert_allclose(peaks1.as_units("s").index.values, peaks2.as_units("s").index.values)

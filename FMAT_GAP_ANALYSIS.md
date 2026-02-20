@@ -9,6 +9,11 @@ This document focuses on **analysis functionality** from FMAToolbox that is not 
 
 It is intentionally not a line-by-line porting checklist. The goal is functional coverage with `pynapple`-native objects and workflows.
 
+Archive policy for this project:
+
+1. `pynacollada/archive/` code is treated as valid baseline implementation.
+2. When archive functionality overlaps with new development, new production APIs should wrap/reuse archive code instead of re-implementing it.
+
 ## Current Coverage Snapshot
 
 ## Already covered in `pynapple` (or close equivalents)

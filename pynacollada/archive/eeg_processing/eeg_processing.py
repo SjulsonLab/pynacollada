@@ -114,15 +114,22 @@ def detect_oscillatory_events(lfp, epoch, freq_band, thres_band, duration_band, 
 
     # Round 3 : Merging oscillation if inter-oscillation period is too short
     osc_ep = osc_ep.merge_close_intervals(min_inter_duration, time_units = 's')
-    osc_ep = osc_ep.reset_index(drop=True)
+    # pynapple IntervalSet no longer exposes reset_index; rebuild to ensure
+    # a clean, contiguous index while preserving interval values.
+    osc_ep = nap.IntervalSet(start=osc_ep.start, end=osc_ep.end)
 
     # Extracting Oscillation peak
     osc_max = []
     osc_tsd = []
     for s, e in osc_ep.values:
-        tmp = nSS.loc[s:e]
-        osc_tsd.append(tmp.idxmax())
-        osc_max.append(tmp.max())
+        slc = nSS.get_slice(s, e, time_unit='s')
+        values = nSS.values[slc]
+        if values.shape[0] == 0:
+            continue
+        times = nSS.index.values[slc]
+        imax = np.argmax(values)
+        osc_tsd.append(times[imax])
+        osc_max.append(values[imax])
 
     osc_max = np.array(osc_max)
     osc_tsd = np.array(osc_tsd)

@@ -11,6 +11,13 @@ import pynapple as nap
 from scipy.signal import lfilter, savgol_filter, welch
 from sklearn.cluster import KMeans
 
+from .archive.eeg_processing.eeg_processing import (
+    bandpass_filter as _archive_bandpass_filter,
+)
+from .archive.eeg_processing.eeg_processing import (
+    detect_oscillatory_events as _archive_detect_oscillatory_events,
+)
+
 try:
     from numba import njit
 
@@ -626,6 +633,62 @@ def detect_swr_jlong(
     return out
 
 
+def bandpass_filter(data: nap.Tsd | nap.TsdFrame, lowcut: float, highcut: float, fs: float, order: int = 4) -> nap.Tsd | nap.TsdFrame:
+    """
+    Archive-backed bandpass filtering helper.
+
+    This deliberately reuses the existing archive implementation instead of duplicating it.
+    """
+    return _archive_bandpass_filter(data, lowcut, highcut, fs, order=order)
+
+
+def detect_oscillatory_events(
+    lfp: nap.Tsd,
+    epoch: nap.IntervalSet,
+    freq_band: tuple[float, float],
+    thres_band: tuple[float, float],
+    duration_band: tuple[float, float],
+    min_inter_duration: float,
+    wsize: int = 51,
+) -> tuple[nap.IntervalSet, nap.Tsd]:
+    """
+    Archive-backed oscillatory event detection (NSS threshold workflow).
+
+    This reuses the validated archive implementation to avoid functionality duplication.
+    """
+    return _archive_detect_oscillatory_events(
+        lfp=lfp,
+        epoch=epoch,
+        freq_band=freq_band,
+        thres_band=thres_band,
+        duration_band=duration_band,
+        min_inter_duration=min_inter_duration,
+        wsize=wsize,
+    )
+
+
+def detect_ripples_nss(
+    lfp: nap.Tsd,
+    epoch: nap.IntervalSet,
+    *,
+    freq_band: tuple[float, float] = (100.0, 300.0),
+    thres_band: tuple[float, float] = (1.0, 10.0),
+    duration_band: tuple[float, float] = (0.02, 0.2),
+    min_inter_duration: float = 0.02,
+    wsize: int = 51,
+) -> tuple[nap.IntervalSet, nap.Tsd]:
+    """Convenience alias for archive-backed NSS ripple detection."""
+    return detect_oscillatory_events(
+        lfp=lfp,
+        epoch=epoch,
+        freq_band=freq_band,
+        thres_band=thres_band,
+        duration_band=duration_band,
+        min_inter_duration=min_inter_duration,
+        wsize=wsize,
+    )
+
+
 def _coerce_events_array(ripples: Any) -> np.ndarray:
     if isinstance(ripples, nap.IntervalSet):
         return np.asarray(ripples.as_units("s").values, dtype=float)
@@ -758,4 +821,3 @@ def detect_swr(*args: Any, **kwargs: Any) -> dict[str, Any]:
 def ripple_stats(*args: Any, **kwargs: Any) -> pd.DataFrame:
     """Alias for `compute_ripple_event_stats`."""
     return compute_ripple_event_stats(*args, **kwargs)
-
