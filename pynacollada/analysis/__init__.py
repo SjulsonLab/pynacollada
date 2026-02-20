@@ -41,6 +41,14 @@ from ..circular_stats import (
     concentration,
     watson_u2_test,
 )
+from ..transforms import (
+    AdaptiveSmooth,
+    CircularShift,
+    DistanceTransform,
+    adaptive_smooth,
+    circular_shift,
+    distance_transform,
+)
 
 __all__ = [
     "FMATRippleDetectorParams",
@@ -80,4 +88,10 @@ __all__ = [
     "watson_u2_test",
     "bartlett_test",
     "fisher_test",
+    "circular_shift",
+    "adaptive_smooth",
+    "distance_transform",
+    "CircularShift",
+    "AdaptiveSmooth",
+    "DistanceTransform",
 ]

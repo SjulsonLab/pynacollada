@@ -66,6 +66,10 @@ Archive policy for this project:
    2. `WatsonU2Test`
    3. `BartlettTest`
    4. `FisherTest`
+8. FMAT-style transform helpers:
+   1. `CircularShift`
+   2. `AdaptiveSmooth`
+   3. `DistanceTransform`
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -90,9 +94,7 @@ High-value missing functions/classes of functionality:
 2. distribution/statistical tests:
    1. multinomial confidence interval tools
 3. advanced sample transforms still absent as polished APIs:
-   1. `AdaptiveSmooth`
-   2. `DistanceTransform`
-   3. `CircularShift`
+   1. (no major gaps currently in this transform subset)
 
 ## C. FMAT `Analyses` gaps (beyond what `pynapple` provides)
 
