@@ -168,12 +168,18 @@ def _interpolate_continuous(tz: np.ndarray, zv: np.ndarray, t: np.ndarray, max_g
 
 
 def _accumulate_1d(idx: np.ndarray, weights: np.ndarray, n_bins: int) -> np.ndarray:
-    return np.bincount(idx, weights=weights, minlength=n_bins).astype(float)
+    w = np.asarray(weights)
+    if np.iscomplexobj(w):
+        r = np.bincount(idx, weights=np.real(w), minlength=n_bins).astype(float)
+        im = np.bincount(idx, weights=np.imag(w), minlength=n_bins).astype(float)
+        return r + 1j * im
+    return np.bincount(idx, weights=w.astype(float), minlength=n_bins).astype(float)
 
 
 def _accumulate_2d(x_idx: np.ndarray, y_idx: np.ndarray, weights: np.ndarray, n_x: int, n_y: int) -> np.ndarray:
-    out = np.zeros((n_y, n_x), dtype=float)
-    np.add.at(out, (y_idx, x_idx), np.asarray(weights, dtype=float))
+    w = np.asarray(weights)
+    out = np.zeros((n_y, n_x), dtype=np.complex128 if np.iscomplexobj(w) else float)
+    np.add.at(out, (y_idx, x_idx), w)
     return out
 
 

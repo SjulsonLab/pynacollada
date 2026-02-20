@@ -1694,6 +1694,11 @@ def ripple_feature_stats(*args: Any, **kwargs: Any) -> tuple[dict[str, np.ndarra
     return compute_ripple_feature_stats(*args, **kwargs)
 
 
+def RippleStats(*args: Any, **kwargs: Any) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
+    """MATLAB-style alias for `compute_ripple_feature_stats`."""
+    return compute_ripple_feature_stats(*args, **kwargs)
+
+
 def ripple_event_schema(*args: Any, **kwargs: Any) -> dict[str, Any]:
     """Alias for `standardize_ripple_events`."""
     return standardize_ripple_events(*args, **kwargs)

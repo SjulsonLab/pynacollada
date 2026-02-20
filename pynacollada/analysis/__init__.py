@@ -3,6 +3,7 @@
 from ..FMA_toolbox.swr import (
     FMATRippleDetectorParams,
     FindRipples,
+    RippleStats,
     SWRDetectorParams,
     bandpass_filter,
     compute_ripple_feature_stats,
@@ -135,6 +136,16 @@ from ..FMA_toolbox.analyses_maps import (
     map_stats,
     normalize_fields,
 )
+from ..FMA_toolbox.analyses_phase_state import (
+    BrainStates,
+    PhaseCurve,
+    PhaseDistribution,
+    PhaseMap,
+    brain_states,
+    phase_curve,
+    phase_distribution,
+    phase_map,
+)
 from ..io import (
     ClearCurrentSession,
     GetCurrentSession,
@@ -189,6 +200,7 @@ from ..io import (
 __all__ = [
     "FMATRippleDetectorParams",
     "FindRipples",
+    "RippleStats",
     "SWRDetectorParams",
     "bandpass_filter",
     "compute_ripple_feature_stats",
@@ -300,6 +312,14 @@ __all__ = [
     "NormalizeFields",
     "FindFieldHelper",
     "bz_Map",
+    "phase_distribution",
+    "phase_curve",
+    "phase_map",
+    "brain_states",
+    "PhaseDistribution",
+    "PhaseCurve",
+    "PhaseMap",
+    "BrainStates",
     "load_binary",
     "load_binary_chunk",
     "LoadBinary",

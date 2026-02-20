@@ -3,6 +3,7 @@
 from .brain_states import *  # noqa: F401,F403
 from .analyses_core import *  # noqa: F401,F403
 from .analyses_maps import *  # noqa: F401,F403
+from .analyses_phase_state import *  # noqa: F401,F403
 from .ccg_fit import *  # noqa: F401,F403
 from .circular_stats import *  # noqa: F401,F403
 from .phase_precession import *  # noqa: F401,F403
