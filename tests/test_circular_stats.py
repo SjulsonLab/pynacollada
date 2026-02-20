@@ -8,6 +8,7 @@ from pynacollada import (
     CircularConfidenceIntervals,
     ConcentrationTest,
     FisherTest,
+    MultinomialConfidenceIntervals,
     CircularRegression,
     CircularVariance,
     Concentration,
@@ -18,6 +19,7 @@ from pynacollada import (
     circular_mean,
     concentration_test,
     fisher_test,
+    multinomial_confidence_intervals,
     circular_regression,
     circular_variance,
     concentration,
@@ -178,3 +180,17 @@ def test_circular_anova_oneway_detects_mean_difference() -> None:
     assert out["F"] > 0.0
     np.testing.assert_allclose(out["p"], p_alias)
     np.testing.assert_allclose(out["F"], f_alias)
+
+
+def test_multinomial_confidence_intervals_basic_properties() -> None:
+    samples = np.array([20, 30, 50], dtype=float)
+    out = multinomial_confidence_intervals(samples, alpha=0.05)
+    p_alias, b_alias = MultinomialConfidenceIntervals(samples, alpha=0.05)
+
+    assert out["p"].shape == (3,)
+    assert out["boundaries"].shape == (2, 3)
+    np.testing.assert_allclose(np.sum(out["p"]), 1.0)
+    assert np.all(out["boundaries"][0] <= out["p"])
+    assert np.all(out["p"] <= out["boundaries"][1])
+    np.testing.assert_allclose(out["p"], p_alias)
+    np.testing.assert_allclose(out["boundaries"], b_alias)

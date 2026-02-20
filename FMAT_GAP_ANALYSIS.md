@@ -66,6 +66,7 @@ Archive policy for this project:
    2. `WatsonU2Test`
    3. `BartlettTest`
    4. `FisherTest`
+   5. `MultinomialConfidenceIntervals`
 8. FMAT-style transform helpers:
    1. `CircularShift`
    2. `AdaptiveSmooth`
@@ -105,7 +106,7 @@ High-value missing functions/classes of functionality:
 1. circular-statistics suite:
    1. two-way/alternative-method `CircularANOVA` variants (`l2`/`lr`)
 2. distribution/statistical tests:
-   1. multinomial confidence interval tools
+   1. (no major gaps currently in this subset)
 3. advanced sample transforms still absent as polished APIs:
    1. (no major gaps currently in this transform subset)
 

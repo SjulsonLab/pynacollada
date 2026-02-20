@@ -613,6 +613,36 @@ def circular_anova(
     }
 
 
+def multinomial_confidence_intervals(samples: np.ndarray, alpha: float = 0.05) -> dict[str, np.ndarray]:
+    """
+    Simultaneous multinomial confidence intervals (Fitzpatrick & Scott style).
+
+    Matches FMAT behavior for alpha levels 0.1, 0.05, and 0.01.
+    """
+    s = np.asarray(samples, dtype=float).reshape(-1)
+    if s.size == 0:
+        return {"p": np.array([], dtype=float), "boundaries": np.empty((2, 0), dtype=float)}
+    if np.any(s < 0):
+        raise ValueError("samples must be non-negative.")
+    n = float(np.sum(s))
+    if n <= 0:
+        raise ValueError("sum(samples) must be positive.")
+
+    if alpha == 0.1:
+        k = 1.0
+    elif alpha == 0.05:
+        k = 1.13
+    elif alpha == 0.01:
+        k = 1.40
+    else:
+        raise ValueError("alpha must be one of {0.1, 0.05, 0.01}.")
+
+    p = s / n
+    b = float(k / np.sqrt(n))
+    boundaries = np.vstack((np.maximum(p - b, 0.0), np.minimum(p + b, 1.0)))
+    return {"p": p, "boundaries": boundaries}
+
+
 def ConcentrationTest(
     angles: np.ndarray,
     group: np.ndarray,
@@ -669,3 +699,12 @@ def CircularANOVA(
     """MATLAB-compatibility alias for `circular_anova`."""
     out = circular_anova(angles, factors, method=method)
     return out["p"], out["F"]
+
+
+def MultinomialConfidenceIntervals(
+    samples: np.ndarray,
+    alpha: float = 0.05,
+) -> tuple[np.ndarray, np.ndarray]:
+    """MATLAB-compatibility alias for `multinomial_confidence_intervals`."""
+    out = multinomial_confidence_intervals(samples, alpha=alpha)
+    return out["p"], out["boundaries"]
