@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 from scipy.optimize import minimize
+from scipy.stats import f
 from scipy.stats import norm
 
 
@@ -221,3 +222,109 @@ def CircularRegression(
     """MATLAB-compatibility alias for `circular_regression`."""
     out = circular_regression(x, angles, slope=slope, random_seed=randomSeed)
     return out["beta"], out["R2"], out["beta_ts"], out["R2_ts"]
+
+
+def concentration_test(
+    angles: np.ndarray,
+    group: np.ndarray,
+    alpha: float = 0.05,
+    n_randomizations: int = 1000,
+    *,
+    random_seed: int | None = None,
+) -> dict[str, Any]:
+    """
+    Test homogeneity of concentration parameters across groups.
+
+    Implements FMAT `ConcentrationTest` behavior:
+    - asymptotic F-test when median kappa >= 1
+    - randomization test otherwise
+    """
+    a = np.asarray(angles, dtype=float).reshape(-1)
+    g = np.asarray(group).reshape(-1)
+    if a.shape[0] != g.shape[0]:
+        raise ValueError("angles and group must have the same length.")
+    if a.shape[0] == 0:
+        return {"h": False, "p": np.nan, "fr": np.nan, "kappa": np.array([], dtype=float), "kappa_median": np.nan}
+    if not (0.0 < alpha < 1.0):
+        raise ValueError("alpha must be between 0 and 1.")
+
+    unique = np.unique(g)
+    r = int(unique.shape[0])
+    if r < 2:
+        raise ValueError("concentration_test requires at least two groups.")
+
+    counts = np.array([np.sum(g == u) for u in unique], dtype=int)
+    if np.min(counts) < 10:
+        raise ValueError("concentration_test requires at least 10 samples per group.")
+
+    kappas = np.array([concentration(a[g == u]) for u in unique], dtype=float)
+    kappa_med = float(np.median(kappas))
+    mus = np.array([circular_mean(a[g == u]) for u in unique], dtype=float)
+
+    def _compute_fr(group_assign: np.ndarray, mu_values: np.ndarray) -> float:
+        d = np.zeros(r, dtype=float)
+        s = np.zeros(r, dtype=float)
+        for i, u in enumerate(unique):
+            vals = a[group_assign == u]
+            dif = np.abs(np.sin(vals - mu_values[i]))
+            d[i] = np.sum(dif) / vals.shape[0]
+            s[i] = np.sum((dif - d[i]) ** 2)
+        d_bar = float(np.sum(counts * d) / np.sum(counts))
+        denom = max((r - 1) * np.sum(s), 1e-12)
+        return float((np.sum(counts) - r) * np.sum(counts * (d - d_bar) ** 2) / denom)
+
+    fr = _compute_fr(g, mus)
+    if kappa_med >= 1.0:
+        p = 1.0 - f.cdf(fr, r - 1, int(np.sum(counts) - r))
+        p = 2.0 * min(p, 1.0 - p)
+    else:
+        rng = np.random.default_rng(random_seed)
+        centered = a.copy()
+        for i, u in enumerate(unique):
+            centered[g == u] = centered[g == u] - mus[i]
+        fr_rand = np.zeros(int(n_randomizations), dtype=float)
+        for i in range(int(n_randomizations)):
+            perm = rng.permutation(centered.shape[0])
+            g_perm = g[perm]
+            mu_perm = np.array([circular_mean(centered[g_perm == u]) for u in unique], dtype=float)
+            fr_rand[i] = _compute_fr(g_perm, mu_perm)
+        fr_rand = np.sort(fr_rand)
+        ge = np.flatnonzero(fr_rand >= fr)
+        if ge.size == 0:
+            p = 0.0
+        else:
+            first = int(ge[0])
+            n_ties = int(np.sum(ge == first))
+            if n_ties == 1:
+                p = (n_randomizations - first) / n_randomizations
+            else:
+                p = (n_randomizations - first - 1) / n_randomizations + n_ties / (2.0 * n_randomizations)
+
+    return {
+        "h": bool(p < alpha),
+        "p": float(p),
+        "fr": float(fr),
+        "kappa": kappas,
+        "kappa_median": kappa_med,
+        "group_ids": unique,
+        "group_counts": counts,
+    }
+
+
+def ConcentrationTest(
+    angles: np.ndarray,
+    group: np.ndarray,
+    alpha: float = 0.05,
+    nRandomizations: int = 1000,
+    *,
+    randomSeed: int | None = None,
+) -> tuple[bool, float]:
+    """MATLAB-compatibility alias for `concentration_test`."""
+    out = concentration_test(
+        angles,
+        group,
+        alpha=alpha,
+        n_randomizations=nRandomizations,
+        random_seed=randomSeed,
+    )
+    return out["h"], out["p"]

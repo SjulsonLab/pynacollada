@@ -4,11 +4,13 @@ import numpy as np
 
 from pynacollada import (
     CircularConfidenceIntervals,
+    ConcentrationTest,
     CircularRegression,
     CircularVariance,
     Concentration,
     circular_confidence_intervals,
     circular_mean,
+    concentration_test,
     circular_regression,
     circular_variance,
     concentration,
@@ -78,3 +80,30 @@ def test_circular_regression_recovers_slope() -> None:
     np.testing.assert_allclose(out["R2"], r2)
     np.testing.assert_allclose(out["beta_ts"], beta_ts, equal_nan=True)
     np.testing.assert_allclose(out["R2_ts"], r2_ts, equal_nan=True)
+
+
+def test_concentration_test_detects_dispersion_difference() -> None:
+    rng = np.random.default_rng(0)
+    group1 = 0.15 * rng.standard_normal(120)
+    group2 = rng.uniform(-np.pi, np.pi, 120)
+    angles = np.concatenate((group1, group2))
+    groups = np.concatenate((np.ones(group1.size, dtype=int), 2 * np.ones(group2.size, dtype=int)))
+
+    out = concentration_test(angles, groups, alpha=0.05, n_randomizations=500, random_seed=0)
+    h_alias, p_alias = ConcentrationTest(angles, groups, alpha=0.05, nRandomizations=500, randomSeed=0)
+
+    assert out["h"] is True
+    assert out["p"] < 0.05
+    assert h_alias is True
+    np.testing.assert_allclose(out["p"], p_alias)
+
+
+def test_concentration_test_no_difference_case() -> None:
+    rng = np.random.default_rng(1)
+    group1 = 0.2 * rng.standard_normal(150)
+    group2 = np.pi / 2 + 0.2 * rng.standard_normal(150)
+    angles = np.concatenate((group1, group2))
+    groups = np.concatenate((np.ones(group1.size, dtype=int), 2 * np.ones(group2.size, dtype=int)))
+
+    out = concentration_test(angles, groups, alpha=0.05, n_randomizations=500, random_seed=0)
+    assert out["p"] > 0.01

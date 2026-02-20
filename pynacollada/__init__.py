@@ -16,11 +16,13 @@ from .swr import (
 )
 from .circular_stats import (
     CircularConfidenceIntervals,
+    ConcentrationTest,
     CircularRegression,
     CircularVariance,
     Concentration,
     circular_confidence_intervals,
     circular_mean,
+    concentration_test,
     circular_regression,
     circular_variance,
     concentration,
@@ -46,6 +48,8 @@ __all__ = [
     "circular_regression",
     "CircularVariance",
     "Concentration",
+    "ConcentrationTest",
     "CircularConfidenceIntervals",
     "CircularRegression",
+    "concentration_test",
 ]
