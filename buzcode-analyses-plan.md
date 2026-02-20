@@ -1,7 +1,7 @@
 # Buzcode Analyses Port Plan (Pynapple-First)
 
 ## 1. Objective
-Port buzcode `analysis/` functionality into `pynacollada` without duplicating capabilities that already exist in `pynapple`.
+Port and unify analysis functionality from `buzcode/analysis`, `FMAToolbox`, and `archive` into `pynacollada` without duplicating capabilities that already exist in `pynapple`.
 
 This plan is based on reading:
 - `buzcode/analysis/*`
@@ -12,11 +12,12 @@ This plan is based on reading:
 ## 2. Hard Constraints
 1. `pynapple` is the computational core.
 2. Do not re-implement functionality already available in `pynapple` (`restrict`, interval operations, filtering, correlograms, tuning curves, decoding, perievent, wavelets, spectra).
-3. `pynacollada` should add:
+3. `buzcode/analysis`, `FMAToolbox`, and `archive` are equal reference sources for analysis behavior and outputs.
+4. `pynacollada` should add:
    - workflow composition,
    - buzcode-compatible schemas/aliases,
    - missing algorithms not in `pynapple`.
-4. Prefer `nap.Tsd`, `nap.TsdFrame`, `nap.TsGroup`, `nap.IntervalSet` interfaces; legacy dict/mat structs are compatibility adapters only.
+5. Prefer `nap.Tsd`, `nap.TsdFrame`, `nap.TsGroup`, `nap.IntervalSet` interfaces; legacy dict/mat structs are compatibility adapters only.
 
 ## 3. Audit Snapshot
 - `buzcode/analysis` subdirs: 13
@@ -43,7 +44,7 @@ This plan is based on reading:
 ### Current coverage signal
 - Name-matched in current `pynacollada`: very limited (mainly ripple stack aliases).
 - Existing `pynacollada` strength is the FMAT/SWR layer (`FMA_toolbox/swr.py` + tests).
-- `buzcode-python` already contains parity-tested ports for several dependencies (`bz_WaveSpec`, `bz_firingMap1D`, `bz_PowerSpectrumSlope`, `CCG`, `bz_SpktToSpkmat`, interval helpers), and should be treated as an implementation oracle, not blindly copied.
+- `buzcode-python` already contains parity-tested ports for several dependencies (`bz_WaveSpec`, `bz_firingMap1D`, `bz_PowerSpectrumSlope`, `CCG`, `bz_SpktToSpkmat`, interval helpers), and should be used as an auxiliary validation source, not copied directly.
 
 ### Dependency hotspots in buzcode analyses
 High-frequency shared dependencies from FMAT/buzcode helpers include:
@@ -75,7 +76,7 @@ Interpretation: porting should be dependency-layered, not folder-by-folder.
 | Tutorial scripts/notebooks in `archive/*` | Demonstration-oriented workflows | Use as behavior examples for tests/docs, not production modules. |
 
 Archive policy:
-1. `archive/` is source material and parity oracle context, not production runtime code.
+1. `archive/` is an equal reference source for behavior/specs, but not production runtime code.
 2. No new analysis module should import from `pynacollada.archive.*`.
 3. Any useful archive logic must be rewritten into typed pynapple-first modules with tests before adoption.
 
@@ -94,6 +95,17 @@ Only for missing functionality:
 ## Layer C: Compatibility adapters
 Thin wrappers for buzcode-style names/schemas (`bz_*`) that call A/B internals.
 No separate numerical implementation in compatibility wrappers.
+
+## 4.5 Tri-Source Unification Method
+For each target function/workflow:
+1. Build a behavior matrix from all three reference sources (`buzcode/analysis`, `FMAToolbox`, `archive`) covering inputs, outputs, units, defaults, and edge cases.
+2. Implement one canonical pynapple-first version in `pynacollada`.
+3. Run differential tests against all available source implementations/fixtures.
+4. Resolve disagreements with a documented rubric:
+   - Prefer consensus behavior when at least two sources agree and tests are stable.
+   - If all three differ, choose the most internally consistent, numerically stable, and scientifically interpretable behavior.
+   - If two behaviors are both actively used and scientifically meaningful, expose an explicit `mode=` switch instead of silent branching.
+5. Record provenance in docs/tests for every non-trivial divergence.
 
 ## 5. Proposed Package Organization
 Create a dedicated namespace in `pynacollada`:
@@ -134,9 +146,10 @@ Keep ripple/SWR implementations in `pynacollada/FMA_toolbox/swr.py`; expose alia
 ## 7. Phased Implementation Plan
 ## Phase 0: Guardrails and Inventory Lock
 1. Add a function registry mapping each of 79 functions to one of: `WRAP_PYNAPPLE`, `NEW_ALGORITHM`, `DEFER`.
-2. Add a CI check that blocks new ports tagged `WRAP_PYNAPPLE` from containing custom numerical kernels (enforce wrapper-only rule).
-3. Add adapter utilities and type validators for canonical pynapple objects.
-4. Add a CI lint rule preventing new `pynacollada.archive` imports (temporary allowlist for current SWR dependency only).
+2. Add per-function source matrix columns for `buzcode/analysis`, `FMAToolbox`, and `archive` behavior coverage.
+3. Add a CI check that blocks new ports tagged `WRAP_PYNAPPLE` from containing custom numerical kernels (enforce wrapper-only rule).
+4. Add adapter utilities and type validators for canonical pynapple objects.
+5. Add a CI lint rule preventing new `pynacollada.archive` imports (temporary allowlist for current SWR dependency only).
 
 ## Phase 1: Shared compatibility floor (thin wrappers)
 1. Implement wrappers for frequently used semantics (`InIntervals`/`Restrict`/`Sync`/`SyncMap` equivalents) backed by `pynapple` APIs.
@@ -160,9 +173,10 @@ Keep ripple/SWR implementations in `pynacollada/FMA_toolbox/swr.py`; expose alia
 
 ## 8. Testing and Validation
 1. `pynapple-consistency tests`: wrappers must match direct `pynapple` operations.
-2. `MATLAB parity tests`: only for `NEW_ALGORITHM` functions.
-3. Reuse/adapt parity fixtures from `buzcode-python/tests/test_matlab_*_parity.py` where applicable.
-4. Add workflow integration tests:
+2. `tri-source differential tests`: compare outputs against available implementations/fixtures from `buzcode/analysis`, `FMAToolbox`, and archive references.
+3. `MATLAB parity tests`: required for `NEW_ALGORITHM` functions.
+4. Reuse/adapt parity fixtures from `buzcode-python/tests/test_matlab_*_parity.py` where applicable.
+5. Add workflow integration tests:
    - ripple -> spike coupling,
    - place fields -> decoding,
    - LFP spectral -> state/coupling summaries.
@@ -179,11 +193,12 @@ Better target: port end-to-end scientific workflows, then attach compatibility a
 
 ### Recommended alternatives
 1. Workflow-first milestone set (ripples, place/decoding, monosynaptic, spike-LFP) before long-tail utilities.
-2. Use `buzcode-python` as parity oracle and source of test cases; do not fork its architecture directly into `pynacollada`.
+2. Use all three source families as reference behaviors and `buzcode-python` as supplemental test evidence; do not fork any source architecture directly into `pynacollada`.
 3. Explicitly defer low-value plotting/UI parity and MATLAB-interactive tooling unless required by active analyses.
 
 ## 10. Immediate Next Actions
-1. Create the 79-function registry with `WRAP_PYNAPPLE` vs `NEW_ALGORITHM` labels.
-2. Implement Phase 1 compatibility floor as thin wrappers over `pynapple`.
-3. Start Phase 2 with `SpectralAnalyses` + `placeFields` + `positionDecoding` as `pynapple` compositions.
-4. Move SWR dependency off `archive/eeg_processing.py` into a maintained analysis module and keep output parity tests.
+1. Create the 79-function registry with `WRAP_PYNAPPLE` vs `NEW_ALGORITHM` labels plus tri-source coverage columns.
+2. Implement a decision log template for source conflicts (consensus, chosen behavior, rationale, test evidence).
+3. Implement Phase 1 compatibility floor as thin wrappers over `pynapple`.
+4. Start Phase 2 with `SpectralAnalyses` + `placeFields` + `positionDecoding` as `pynapple` compositions.
+5. Move SWR dependency off `archive/eeg_processing.py` into a maintained analysis module and keep output parity tests.
