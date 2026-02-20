@@ -7,6 +7,7 @@ This plan is based on reading:
 - `buzcode/analysis/*`
 - `buzcode/externalPackages/FMAToolbox/*`
 - `pynacollada/pynacollada/*`
+- `pynacollada/pynacollada/archive/*`
 
 ## 2. Hard Constraints
 1. `pynapple` is the computational core.
@@ -52,6 +53,31 @@ High-frequency shared dependencies from FMAT/buzcode helpers include:
 - `bz_WaveSpec`, `bz_Filter`, `bz_SpktToSpkmat`, `CCG`
 
 Interpretation: porting should be dependency-layered, not folder-by-folder.
+
+### Archive audit (`pynacollada/pynacollada/archive`)
+- Python files discovered: 15
+- Files that compile cleanly: 13
+- Files with syntax/indentation errors: 2
+  - `archive/neural_decoding/neural_decoding.py` (syntax error)
+  - `archive/neural_tuning/neural_tuning.py` (indentation error)
+- Production imports from archive today: only `FMA_toolbox/swr.py` importing `archive/eeg_processing/eeg_processing.py`.
+
+| Archive module | Current state | Planned role in port |
+|---|---|---|
+| `brain_state_scoring/brain_state_scoring.py` | Small, usable, already superseded by `FMA_toolbox/brain_states.py` | Keep as historical reference only; no direct reuse needed. |
+| `eeg_processing/eeg_processing.py` | Usable core helper code; currently imported by SWR module | Extract stable helpers into non-archive analysis module, then retire archive import. |
+| `neural_ensemble/neural_ensemble.py` | Partially implemented with TODOs and brittle paths | Salvage algorithm ideas only; rewrite on pynapple-native interfaces. |
+| `neural_decoding/neural_decoding.py` | Broken syntax + undefined variables | Treat as non-viable code; use buzcode/FMAT specs and pynapple decoders instead. |
+| `neural_tuning/neural_tuning.py` | Broken indentation, duplicate/legacy patterns | Treat as non-viable code; use pynapple tuning stack and rebuild missing logic cleanly. |
+| `graphics/graphics.py` | Stub placeholders | Do not port; keep plotting parity out of core scope. |
+| `neural_crosscorr/neural_crosscorr.py` | Minimal/empty scaffold | Do not port directly. |
+| `position_tracking/position_tracking.py` | Minimal scaffold | Do not port directly. |
+| Tutorial scripts/notebooks in `archive/*` | Demonstration-oriented workflows | Use as behavior examples for tests/docs, not production modules. |
+
+Archive policy:
+1. `archive/` is source material and parity oracle context, not production runtime code.
+2. No new analysis module should import from `pynacollada.archive.*`.
+3. Any useful archive logic must be rewritten into typed pynapple-first modules with tests before adoption.
 
 ## 4. Architecture: Three Layers
 ## Layer A: Native pynapple composition (preferred)
@@ -110,6 +136,7 @@ Keep ripple/SWR implementations in `pynacollada/FMA_toolbox/swr.py`; expose alia
 1. Add a function registry mapping each of 79 functions to one of: `WRAP_PYNAPPLE`, `NEW_ALGORITHM`, `DEFER`.
 2. Add a CI check that blocks new ports tagged `WRAP_PYNAPPLE` from containing custom numerical kernels (enforce wrapper-only rule).
 3. Add adapter utilities and type validators for canonical pynapple objects.
+4. Add a CI lint rule preventing new `pynacollada.archive` imports (temporary allowlist for current SWR dependency only).
 
 ## Phase 1: Shared compatibility floor (thin wrappers)
 1. Implement wrappers for frequently used semantics (`InIntervals`/`Restrict`/`Sync`/`SyncMap` equivalents) backed by `pynapple` APIs.
@@ -159,3 +186,4 @@ Better target: port end-to-end scientific workflows, then attach compatibility a
 1. Create the 79-function registry with `WRAP_PYNAPPLE` vs `NEW_ALGORITHM` labels.
 2. Implement Phase 1 compatibility floor as thin wrappers over `pynapple`.
 3. Start Phase 2 with `SpectralAnalyses` + `placeFields` + `positionDecoding` as `pynapple` compositions.
+4. Move SWR dependency off `archive/eeg_processing.py` into a maintained analysis module and keep output parity tests.
