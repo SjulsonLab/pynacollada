@@ -14,6 +14,12 @@ from .events import (
     load_events,
     save_events,
 )
+from .parameters import (
+    LoadPar,
+    LoadParameters,
+    load_par,
+    load_parameters,
+)
 
 __all__ = [
     "load_binary",
@@ -26,4 +32,8 @@ __all__ = [
     "IsEvents",
     "LoadEvents",
     "SaveEvents",
+    "load_parameters",
+    "load_par",
+    "LoadParameters",
+    "LoadPar",
 ]

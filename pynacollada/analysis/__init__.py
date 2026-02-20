@@ -91,10 +91,14 @@ from ..io import (
     LoadBinary,
     LoadBinaryChunk,
     LoadEvents,
+    LoadPar,
+    LoadParameters,
     SaveEvents,
     is_events,
     load_binary,
     load_events,
+    load_par,
+    load_parameters,
     load_binary_chunk,
     save_events,
 )
@@ -178,4 +182,8 @@ __all__ = [
     "IsEvents",
     "LoadEvents",
     "SaveEvents",
+    "load_parameters",
+    "load_par",
+    "LoadParameters",
+    "LoadPar",
 ]
