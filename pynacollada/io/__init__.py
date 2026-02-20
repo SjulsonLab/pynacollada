@@ -64,6 +64,12 @@ from .positions import (
     get_positions,
     load_positions,
 )
+from .spike_metrics import (
+    GetSpikeAmplitudes,
+    GetSpikeWaveforms,
+    get_spike_amplitudes,
+    get_spike_waveforms,
+)
 
 __all__ = [
     "load_binary",
@@ -110,4 +116,8 @@ __all__ = [
     "get_positions",
     "LoadPositions",
     "GetPositions",
+    "get_spike_waveforms",
+    "get_spike_amplitudes",
+    "GetSpikeWaveforms",
+    "GetSpikeAmplitudes",
 ]
