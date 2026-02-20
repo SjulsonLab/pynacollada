@@ -49,6 +49,12 @@ from ..transforms import (
     circular_shift,
     distance_transform,
 )
+from ..spike_cycle import (
+    CountSpikesPerCycle,
+    SelectSpikes,
+    count_spikes_per_cycle,
+    select_spikes,
+)
 
 __all__ = [
     "FMATRippleDetectorParams",
@@ -94,4 +100,8 @@ __all__ = [
     "CircularShift",
     "AdaptiveSmooth",
     "DistanceTransform",
+    "select_spikes",
+    "count_spikes_per_cycle",
+    "SelectSpikes",
+    "CountSpikesPerCycle",
 ]

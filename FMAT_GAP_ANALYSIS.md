@@ -70,6 +70,9 @@ Archive policy for this project:
    1. `CircularShift`
    2. `AdaptiveSmooth`
    3. `DistanceTransform`
+9. Spike-cycle process helpers:
+   1. `SelectSpikes` burst/single discrimination
+   2. `CountSpikesPerCycle`
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -102,9 +105,7 @@ High-value missing functions/classes of functionality:
    1. `PhasePrecession` wrappers with FMAT-like summary outputs
    2. `FieldShift`, `TestRemapping`, `TestSkewness`
 2. Spike-process modeling helpers:
-   1. `SelectSpikes` (burst/single discrimination)
-   2. `CountSpikesPerCycle`
-   3. `FitCCG`-style damped sinusoid fits
+   1. `FitCCG`-style damped sinusoid fits
 3. Behavior-specific utility analyses:
    1. `RadialMaze`, `RadialMazeTurns`
    2. `BrainStates`-adjacent summaries if not delegated elsewhere
