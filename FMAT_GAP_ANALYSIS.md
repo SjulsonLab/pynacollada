@@ -95,6 +95,7 @@ Archive policy for this project:
    1. `LoadBinary` and `LoadBinaryChunk` APIs for multiplexed binary files
 17. FMAT-style event IO helpers:
    1. `LoadEvents` and `SaveEvents`
+   2. `GetEvents` / `GetEventTypes` regex-query wrappers
 18. FMAT-style parameter IO helpers:
    1. `LoadParameters` and `LoadPar` (XML-based session parameters)
 19. FMAT-style LFP data helper:

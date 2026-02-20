@@ -89,6 +89,8 @@ from ..radial_maze import (
 from ..io import (
     ClearCurrentSession,
     GetCurrentSession,
+    GetEvents,
+    GetEventTypes,
     GetSpikes,
     IsEvents,
     LoadBinary,
@@ -107,6 +109,8 @@ from ..io import (
     load_binary,
     load_events,
     get_lfp,
+    get_events,
+    get_event_types,
     open_session,
     load_par,
     load_parameters,
@@ -218,4 +222,8 @@ __all__ = [
     "GetSpikeTimes",
     "get_spikes",
     "GetSpikes",
+    "get_events",
+    "get_event_types",
+    "GetEvents",
+    "GetEventTypes",
 ]

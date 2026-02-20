@@ -42,6 +42,12 @@ from .spikes import (
     get_spike_times,
     load_spike_times,
 )
+from .event_query import (
+    GetEvents,
+    GetEventTypes,
+    get_events,
+    get_event_types,
+)
 
 __all__ = [
     "load_binary",
@@ -74,4 +80,8 @@ __all__ = [
     "GetSpikeTimes",
     "get_spikes",
     "GetSpikes",
+    "get_events",
+    "get_event_types",
+    "GetEvents",
+    "GetEventTypes",
 ]
