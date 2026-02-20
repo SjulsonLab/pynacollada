@@ -176,3 +176,47 @@ def test_get_spikes_cellinfo_unit_filtering(tmp_path) -> None:
     alias_struct = GetSpikes(basePath=session, source="cellinfo")
     assert isinstance(alias_struct, dict)
     assert alias_struct["source"] == "cellinfo"
+
+
+def test_get_spikes_waveform_extraction_from_dat(tmp_path) -> None:
+    session = tmp_path / "sessionSpk"
+    session.mkdir()
+    _write_session(session)
+
+    fs = 20000
+    n_samples = 1200
+    dat = np.zeros((n_samples, 4), dtype=np.int16)
+    waveform = np.array([-5, -12, -25, -12, -5], dtype=np.int16)
+
+    # Unit mapping from .res/.clu generated in _write_session:
+    # (shank=1,clu=1) -> samples [200, 600]
+    # (shank=1,clu=2) -> samples [100, 500]
+    # (shank=2,clu=0) -> samples [250, 450]
+    # (shank=2,clu=3) -> samples [150, 350]
+    for s in [200, 600]:
+        dat[s - 2 : s + 3, 0] += waveform
+    for s in [100, 500]:
+        dat[s - 2 : s + 3, 1] += waveform
+    for s in [250, 450]:
+        dat[s - 2 : s + 3, 2] += waveform
+    for s in [150, 350]:
+        dat[s - 2 : s + 3, 3] += waveform
+    dat.tofile(session / "sessionSpk.dat")
+
+    out = get_spikes(
+        base_path=session,
+        source="clu",
+        get_waveforms=True,
+        waveform_window_s=(2 / fs, 3 / fs),
+        waveform_highpass_hz=0.0,
+        as_tsgroup=False,
+    )
+
+    assert out["numcells"] == 4
+    assert "rawWaveform" in out
+    assert "filtWaveform" in out
+    assert "maxWaveformCh" in out
+    assert len(out["rawWaveform"]) == 4
+    np.testing.assert_array_equal(out["maxWaveformCh"], np.array([0, 1, 2, 3], dtype=int))
+    for wf in out["rawWaveform"]:
+        assert np.asarray(wf).shape == (5,)

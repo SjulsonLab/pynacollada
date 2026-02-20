@@ -8,6 +8,7 @@ from typing import Any, Mapping
 import numpy as np
 import pynapple as nap
 from scipy.io import loadmat
+from scipy.signal import butter, filtfilt
 
 from .parameters import load_parameters
 from .session import get_current_session
@@ -295,6 +296,139 @@ def _spikes_to_tsgroup(spikes: dict[str, Any]) -> nap.TsGroup:
     return group
 
 
+def _resolve_dat_file(base_path: Path, basename: str | None) -> Path:
+    if basename is not None and str(basename).strip():
+        candidate = base_path / f"{str(basename).strip()}.dat"
+        if candidate.exists():
+            return candidate
+        raise FileNotFoundError(f"DAT file not found: {candidate}")
+
+    default = base_path / f"{base_path.resolve().name}.dat"
+    if default.exists():
+        return default
+    matches = sorted(base_path.glob("*.dat"))
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise FileNotFoundError(f"No .dat file found in {base_path}")
+    raise ValueError("Multiple .dat files found; specify basename explicitly.")
+
+
+def _extract_waveforms_from_dat(
+    spikes: dict[str, Any],
+    *,
+    base_path: Path,
+    basename: str | None,
+    n_channels: int,
+    sampling_rate: float,
+    elec_groups: list[np.ndarray] | None,
+    waveform_window_s: tuple[float, float],
+    waveform_max_spikes: int,
+    waveform_sample_mode: str,
+    waveform_random_seed: int | None,
+    waveform_highpass_hz: float,
+) -> dict[str, Any]:
+    out = dict(spikes)
+    uid = np.asarray(out.get("UID", []), dtype=int).reshape(-1)
+    times = [np.asarray(t, dtype=float).reshape(-1) for t in out.get("times", [])]
+    shank = np.asarray(out.get("shankID", np.ones(uid.size, dtype=int)), dtype=int).reshape(-1)
+    if uid.size == 0 or len(times) == 0:
+        out["rawWaveform"] = []
+        out["filtWaveform"] = []
+        out["maxWaveformCh"] = np.array([], dtype=int)
+        return out
+    if n_channels <= 0 or sampling_rate <= 0:
+        raise ValueError("n_channels and sampling_rate must be positive for waveform extraction.")
+
+    pre = int(round(float(waveform_window_s[0]) * sampling_rate))
+    post = int(round(float(waveform_window_s[1]) * sampling_rate))
+    if pre <= 0 or post <= 0:
+        raise ValueError("waveform_window_s must define positive pre/post windows.")
+    win = pre + post
+    if waveform_max_spikes <= 0:
+        raise ValueError("waveform_max_spikes must be > 0.")
+    mode = str(waveform_sample_mode).lower()
+    if mode not in {"deterministic", "random"}:
+        raise ValueError("waveform_sample_mode must be 'deterministic' or 'random'.")
+
+    dat_file = _resolve_dat_file(base_path, basename)
+    mm = np.memmap(dat_file, dtype=np.int16, mode="r")
+    n_samples = mm.size // n_channels
+    data = np.asarray(mm[: n_samples * n_channels]).reshape(n_samples, n_channels)
+    rng = np.random.default_rng(waveform_random_seed) if mode == "random" else None
+
+    raw_waveform: list[np.ndarray] = []
+    filt_waveform: list[np.ndarray] = []
+    max_waveform_ch: list[int] = []
+
+    hp_b: np.ndarray | None = None
+    hp_a: np.ndarray | None = None
+    if waveform_highpass_hz > 0:
+        nyq = 0.5 * sampling_rate
+        wn = min(max(float(waveform_highpass_hz) / nyq, 1e-6), 0.999)
+        hp_b, hp_a = butter(3, wn, btype="highpass")
+
+    all_channels = np.arange(n_channels, dtype=int)
+    for idx in range(uid.size):
+        unit_times = np.asarray(times[idx], dtype=float).reshape(-1)
+        if unit_times.size == 0:
+            raw_waveform.append(np.full(win, np.nan, dtype=float))
+            filt_waveform.append(np.full(win, np.nan, dtype=float))
+            max_waveform_ch.append(-1)
+            continue
+        if unit_times.size > waveform_max_spikes:
+            if mode == "random":
+                assert rng is not None
+                chosen = np.sort(rng.choice(unit_times.size, size=int(waveform_max_spikes), replace=False))
+                unit_times = unit_times[chosen]
+            else:
+                unit_times = unit_times[: int(waveform_max_spikes)]
+
+        local_group: np.ndarray
+        if elec_groups is not None and shank.size == uid.size:
+            sh = int(shank[idx])
+            if 1 <= sh <= len(elec_groups):
+                local_group = np.asarray(elec_groups[sh - 1], dtype=int).reshape(-1)
+            else:
+                local_group = all_channels
+        else:
+            local_group = all_channels
+        local_group = local_group[(local_group >= 0) & (local_group < n_channels)]
+        if local_group.size == 0:
+            local_group = all_channels
+
+        sample_idx = np.asarray(np.round(unit_times * sampling_rate), dtype=int)
+        sample_idx = sample_idx[(sample_idx - pre >= 0) & (sample_idx + post <= n_samples)]
+        if sample_idx.size == 0:
+            raw_waveform.append(np.full(win, np.nan, dtype=float))
+            filt_waveform.append(np.full(win, np.nan, dtype=float))
+            max_waveform_ch.append(int(local_group[0]) if local_group.size else -1)
+            continue
+
+        snippets = np.stack([data[s - pre : s + post, :][:, local_group] for s in sample_idx], axis=0).astype(float)
+        mean_wave = np.mean(snippets, axis=0)  # (win, n_local_channels)
+        center = pre
+        local_idx = int(np.argmax(np.abs(mean_wave[center, :])))
+        raw_vec = mean_wave[:, local_idx]
+
+        if hp_b is not None and hp_a is not None and raw_vec.size > max(3 * max(len(hp_a), len(hp_b)), 12):
+            try:
+                filt_vec = filtfilt(hp_b, hp_a, raw_vec, method="gust")
+            except Exception:
+                filt_vec = raw_vec.copy()
+        else:
+            filt_vec = raw_vec.copy()
+
+        raw_waveform.append(np.asarray(raw_vec, dtype=float))
+        filt_waveform.append(np.asarray(filt_vec, dtype=float))
+        max_waveform_ch.append(int(local_group[local_idx]))
+
+    out["rawWaveform"] = raw_waveform
+    out["filtWaveform"] = filt_waveform
+    out["maxWaveformCh"] = np.asarray(max_waveform_ch, dtype=int)
+    return out
+
+
 def load_spike_times(filename: str | Path, rate: float) -> np.ndarray:
     """
     Load spike timestamps from paired `.res.N` and `.clu.N` files.
@@ -466,6 +600,12 @@ def get_spikes(
     basename: str | None = None,
     rate: float | None = None,
     source: str = "auto",
+    get_waveforms: bool = False,
+    waveform_window_s: tuple[float, float] = (0.001, 0.002),
+    waveform_max_spikes: int = 1000,
+    waveform_sample_mode: str = "deterministic",
+    waveform_random_seed: int | None = None,
+    waveform_highpass_hz: float = 500.0,
     as_tsgroup: bool = True,
 ) -> nap.TsGroup | dict[str, Any]:
     """
@@ -479,6 +619,10 @@ def get_spikes(
     src = str(source).lower()
     if src not in {"auto", "cellinfo", "clu"}:
         raise ValueError("source must be one of {'auto','cellinfo','clu'}.")
+    w = np.asarray(waveform_window_s, dtype=float).reshape(-1)
+    if w.size != 2:
+        raise ValueError("waveform_window_s must contain exactly two values: (pre_s, post_s).")
+    wave_window = (float(w[0]), float(w[1]))
 
     if base_path is None:
         current = get_current_session()
@@ -525,6 +669,26 @@ def get_spikes(
     spikes = _apply_units_filter(spikes, units)
     if "samplingRate" not in spikes:
         spikes["samplingRate"] = float(rate_value) if np.isfinite(rate_value) else np.nan
+
+    if get_waveforms:
+        params = load_parameters(base)
+        n_channels = int(params.get("nChannels", 0))
+        if not np.isfinite(float(spikes.get("samplingRate", np.nan))):
+            spikes["samplingRate"] = float(params["rates"]["wideband"])
+        elec_groups = params.get("ElecGp")
+        spikes = _extract_waveforms_from_dat(
+            spikes,
+            base_path=base,
+            basename=basename,
+            n_channels=n_channels,
+            sampling_rate=float(spikes["samplingRate"]),
+            elec_groups=elec_groups if isinstance(elec_groups, list) else None,
+            waveform_window_s=wave_window,
+            waveform_max_spikes=int(waveform_max_spikes),
+            waveform_sample_mode=waveform_sample_mode,
+            waveform_random_seed=waveform_random_seed,
+            waveform_highpass_hz=float(waveform_highpass_hz),
+        )
 
     if as_tsgroup:
         return _spikes_to_tsgroup(spikes)
@@ -573,6 +737,12 @@ def GetSpikes(
         "basename": options.pop("basename", None),
         "rate": options.pop("rate", None),
         "source": options.pop("source", "auto"),
+        "get_waveforms": bool(options.pop("getwaveforms", options.pop("get_waveforms", False))),
+        "waveform_window_s": tuple(options.pop("waveform_window_s", options.pop("waveformwindows", (0.001, 0.002)))),
+        "waveform_max_spikes": int(options.pop("waveform_max_spikes", options.pop("waveformmaxspikes", 1000))),
+        "waveform_sample_mode": options.pop("waveform_sample_mode", options.pop("waveformsamplemode", "deterministic")),
+        "waveform_random_seed": options.pop("waveform_random_seed", options.pop("waveformrandomseed", None)),
+        "waveform_highpass_hz": float(options.pop("waveform_highpass_hz", options.pop("waveformhphz", 500.0))),
         "as_tsgroup": bool(options.pop("as_tsgroup", options.pop("astsgroup", False))),
     }
     if options:
