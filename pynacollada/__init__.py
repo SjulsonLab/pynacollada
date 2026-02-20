@@ -94,6 +94,7 @@ from .io import (
     LoadEvents,
     GetLFP,
     GetCurrentSession,
+    GetSpikes,
     LoadPar,
     LoadParameters,
     LoadSpikeTimes,
@@ -110,6 +111,7 @@ from .io import (
     load_par,
     load_parameters,
     load_spike_times,
+    get_spikes,
     set_current_session,
     get_spike_times,
     load_binary_chunk,
@@ -214,4 +216,6 @@ __all__ = [
     "get_spike_times",
     "LoadSpikeTimes",
     "GetSpikeTimes",
+    "get_spikes",
+    "GetSpikes",
 ]

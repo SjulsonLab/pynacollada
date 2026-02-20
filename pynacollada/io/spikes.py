@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pynapple as nap
 
 from .parameters import load_parameters
 from .session import get_current_session
@@ -210,6 +211,76 @@ def get_spike_times(
     return np.column_stack((spikes, unit_id))
 
 
+def get_spikes(
+    units: np.ndarray | list[list[int]] | None = None,
+    *,
+    base_path: str | Path | None = None,
+    basename: str | None = None,
+    rate: float | None = None,
+    as_tsgroup: bool = True,
+) -> nap.TsGroup | dict[str, Any]:
+    """
+    Minimal FMAT/buzcode-style spike structure loader built from `.res/.clu`.
+
+    This implementation intentionally focuses on timestamp/group/cluster core
+    functionality and does not attempt waveform extraction.
+    """
+    full = get_spike_times(
+        units=units,
+        base_path=base_path,
+        basename=basename,
+        rate=rate,
+        output="full",
+    )
+    if full.size == 0:
+        if as_tsgroup:
+            return nap.TsGroup({})
+        return {
+            "times": [],
+            "UID": np.array([], dtype=int),
+            "shankID": np.array([], dtype=int),
+            "cluID": np.array([], dtype=int),
+            "numcells": 0,
+            "spindices": np.empty((0, 2), dtype=float),
+            "samplingRate": float(rate) if rate is not None else np.nan,
+        }
+
+    pairs = full[:, 1:3].astype(int, copy=False)
+    unique_pairs, inv = np.unique(pairs, axis=0, return_inverse=True)
+    uid = np.arange(1, unique_pairs.shape[0] + 1, dtype=int)
+    unit_times = [full[inv == i, 0].astype(float, copy=False) for i in range(unique_pairs.shape[0])]
+    spindices = np.column_stack((full[:, 0], (inv + 1).astype(float)))
+
+    if as_tsgroup:
+        data = {int(uid[i]): nap.Ts(t=np.asarray(unit_times[i], dtype=float)) for i in range(unique_pairs.shape[0])}
+        t_start = float(np.min(full[:, 0]))
+        t_end = float(np.max(full[:, 0]))
+        if t_end <= t_start:
+            t_end = t_start + (1.0 / float(rate) if rate is not None and rate > 0 else 1e-6)
+        support = nap.IntervalSet(start=np.array([t_start]), end=np.array([t_end]), time_units="s")
+        group = nap.TsGroup(data, time_support=support)
+        try:
+            group.set_info(shankID=unique_pairs[:, 0], cluID=unique_pairs[:, 1], UID=uid)
+        except Exception:
+            pass
+        return group
+
+    if rate is None:
+        params = load_parameters(Path.cwd() if base_path is None else Path(base_path))
+        rate_value = float(params["rates"]["wideband"])
+    else:
+        rate_value = float(rate)
+    return {
+        "times": [np.asarray(t, dtype=float) for t in unit_times],
+        "UID": uid,
+        "shankID": unique_pairs[:, 0].astype(int),
+        "cluID": unique_pairs[:, 1].astype(int),
+        "numcells": int(unique_pairs.shape[0]),
+        "spindices": spindices.astype(float),
+        "samplingRate": rate_value,
+    }
+
+
 def LoadSpikeTimes(filename: str | Path, rate: float) -> np.ndarray:
     """MATLAB-style alias for :func:`load_spike_times`."""
     return load_spike_times(filename, rate)
@@ -237,9 +308,33 @@ def GetSpikeTimes(
     return get_spike_times(units=units, **mapped)
 
 
+def GetSpikes(
+    units: np.ndarray | list[list[int]] | str | None = None,
+    *args: Any,
+    **kwargs: Any,
+) -> nap.TsGroup | dict[str, Any]:
+    """MATLAB-style alias for :func:`get_spikes`."""
+    if isinstance(units, str):
+        args = (units, *args)
+        units = None
+    options = _collect_options(args, kwargs)
+    mapped = {
+        "base_path": options.pop("basepath", options.pop("base_path", None)),
+        "basename": options.pop("basename", None),
+        "rate": options.pop("rate", None),
+        "as_tsgroup": bool(options.pop("as_tsgroup", options.pop("astsgroup", False))),
+    }
+    if options:
+        unexpected = ", ".join(sorted(options.keys()))
+        raise TypeError(f"Unexpected options: {unexpected}")
+    return get_spikes(units=units, **mapped)
+
+
 __all__ = [
     "load_spike_times",
     "get_spike_times",
+    "get_spikes",
     "LoadSpikeTimes",
     "GetSpikeTimes",
+    "GetSpikes",
 ]

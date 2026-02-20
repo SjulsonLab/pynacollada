@@ -35,8 +35,10 @@ from .session import (
     set_current_session,
 )
 from .spikes import (
+    GetSpikes,
     GetSpikeTimes,
     LoadSpikeTimes,
+    get_spikes,
     get_spike_times,
     load_spike_times,
 )
@@ -70,4 +72,6 @@ __all__ = [
     "get_spike_times",
     "LoadSpikeTimes",
     "GetSpikeTimes",
+    "get_spikes",
+    "GetSpikes",
 ]
