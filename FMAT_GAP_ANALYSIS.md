@@ -75,6 +75,10 @@ Archive policy for this project:
    2. `CountSpikesPerCycle`
 10. Spike-process fit helper:
    1. `FitCCG`-style damped-sine fit to CCGs
+11. Place/remapping analyses:
+   1. `FieldShift` (linear/circular mode)
+   2. `TestRemapping` bootstrap against random-remapping null
+   3. `TestSkewness` distribution-change test
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -105,7 +109,6 @@ High-value missing functions/classes of functionality:
 
 1. Place/phase derived analyses not fully matched by dedicated APIs:
    1. `PhasePrecession` wrappers with FMAT-like summary outputs
-   2. `FieldShift`, `TestRemapping`, `TestSkewness`
 2. Spike-process modeling helpers:
    1. (no major gaps currently in this subset)
 3. Behavior-specific utility analyses:

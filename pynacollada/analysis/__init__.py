@@ -59,6 +59,14 @@ from ..ccg_fit import (
     FitCCG,
     fit_ccg,
 )
+from ..remapping import (
+    FieldShift,
+    TestRemapping,
+    TestSkewness,
+    field_shift,
+    test_remapping,
+    test_skewness,
+)
 
 __all__ = [
     "FMATRippleDetectorParams",
@@ -110,4 +118,10 @@ __all__ = [
     "CountSpikesPerCycle",
     "fit_ccg",
     "FitCCG",
+    "field_shift",
+    "test_remapping",
+    "test_skewness",
+    "FieldShift",
+    "TestRemapping",
+    "TestSkewness",
 ]
