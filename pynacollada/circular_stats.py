@@ -550,67 +550,194 @@ def bartlett_test(values: np.ndarray, group: np.ndarray | None = None, alpha: fl
     }
 
 
+def _oneway_location_statistic(angles: np.ndarray, group: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
+    a = np.asarray(angles, dtype=float).reshape(-1)
+    g = np.asarray(group).reshape(-1)
+    unique = np.unique(g)
+    q = int(unique.shape[0])
+    n = int(a.shape[0])
+    if q < 2:
+        raise ValueError("At least two groups are required.")
+    mu = float(circular_mean(a))
+    ssb = 0.0
+    ssw = 0.0
+    counts = np.zeros(q, dtype=int)
+    for i, gid in enumerate(unique):
+        vals = a[g == gid]
+        counts[i] = int(vals.shape[0])
+        mu_i = float(circular_mean(vals))
+        ssb += vals.shape[0] * (1.0 - np.cos(mu_i - mu))
+        ssw += float(np.sum(1.0 - np.cos(vals - mu_i)))
+    if np.any(counts < 2):
+        raise ValueError("Each group must contain at least two observations.")
+    f_stat = float((n - q) / max(q - 1, 1) * ssb / max(ssw, 1e-12))
+    return f_stat, unique, counts
+
+
+def _twoway_lr_stats(angles: np.ndarray, factor1: np.ndarray, factor2: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+    a = np.asarray(angles, dtype=float).reshape(-1)
+    f1 = np.asarray(factor1).reshape(-1)
+    f2 = np.asarray(factor2).reshape(-1)
+    lv1 = np.unique(f1)
+    lv2 = np.unique(f2)
+    if lv1.shape[0] != 2 or lv2.shape[0] != 2:
+        raise ValueError("Two-way lr mode currently requires a 2x2 design.")
+    counts = np.zeros((2, 2), dtype=int)
+    cell_means = np.zeros((2, 2), dtype=complex)
+    for i, a1 in enumerate(lv1):
+        for j, a2 in enumerate(lv2):
+            mask = (f1 == a1) & (f2 == a2)
+            vals = a[mask]
+            counts[i, j] = int(vals.shape[0])
+            if vals.shape[0] == 0:
+                raise ValueError("Two-way lr mode requires non-empty cells.")
+            cell_means[i, j] = np.mean(np.exp(1j * vals))
+    if not np.all(counts == counts[0, 0]):
+        raise ValueError("Two-way lr mode requires a balanced design.")
+    m = float(counts[0, 0])
+
+    A = np.exp(1j * a)
+    theta = float(np.angle(np.mean(A)))
+    theta_i = np.array([float(np.angle(np.mean(A[f1 == lv1[k]]))) for k in range(2)], dtype=float)
+    theta_j = np.array([float(np.angle(np.mean(A[f2 == lv2[k]]))) for k in range(2)], dtype=float)
+    theta_ij = np.array([[float(np.angle(cell_means[i, j])) for j in range(2)] for i in range(2)], dtype=float)
+
+    phi_l = np.array(
+        [
+            float(np.angle(np.mean(np.array([cell_means[0, 0], cell_means[1, 1]], dtype=complex)))),
+            float(np.angle(np.mean(np.array([cell_means[0, 1], cell_means[1, 0]], dtype=complex)))),
+        ],
+        dtype=float,
+    )
+
+    ss_a = float(4.0 * m * np.sum(1.0 - np.cos(theta_i - theta)))
+    ss_b = float(4.0 * m * np.sum(1.0 - np.cos(theta_j - theta)))
+    ss_ab = float(4.0 * m * np.sum(1.0 - np.cos(phi_l - theta)))
+
+    ss_r = 0.0
+    for i, a1 in enumerate(lv1):
+        for j, a2 in enumerate(lv2):
+            vals = a[(f1 == a1) & (f2 == a2)]
+            ss_r += float(np.sum(2.0 * (1.0 - np.cos(vals - theta_ij[i, j]))))
+
+    ss_r = max(ss_r, 1e-12)
+    stats = np.array([ss_a / ss_r, ss_b / ss_r, ss_ab / ss_r], dtype=float)
+    meta = {"levels1": lv1, "levels2": lv2, "cell_counts": counts}
+    return stats, meta
+
+
 def circular_anova(
     angles: np.ndarray,
     factors: np.ndarray,
     method: str = "ww",
+    n_randomizations: int = 500,
+    *,
+    random_seed: int | None = None,
 ) -> dict[str, Any]:
     """
-    Circular ANOVA (currently one-way Watson-Williams method).
+    Circular ANOVA on one-way or two-way factors.
 
     Notes
     -----
-    Only one-way Watson-Williams (`method='ww'`) is implemented in this version.
+    Supported modes:
+    - one-way: `ww`, `l2`, `lr`
+    - two-way (Nx2 factors): `lr` (2x2 balanced design)
     """
     a = np.asarray(angles, dtype=float).reshape(-1)
-    f = np.asarray(factors).reshape(-1)
-    if a.shape[0] != f.shape[0]:
-        raise ValueError("angles and factors must have the same length.")
-    if a.shape[0] == 0:
-        return {"p": np.nan, "F": np.nan, "method": str(method).lower()}
-
     m = str(method).lower()
-    if m != "ww":
-        raise NotImplementedError("Only one-way Watson-Williams method ('ww') is currently implemented.")
+    if a.shape[0] == 0:
+        return {"p": np.nan, "F": np.nan, "method": m}
 
-    group_ids = np.unique(f)
-    q = int(group_ids.shape[0])
-    n = int(a.shape[0])
-    if q < 2:
-        raise ValueError("circular_anova requires at least two groups.")
-    if n <= q:
-        raise ValueError("Not enough samples for ANOVA degrees of freedom.")
+    f_raw = np.asarray(factors)
+    if f_raw.ndim == 1:
+        f = f_raw.reshape(-1)
+        if a.shape[0] != f.shape[0]:
+            raise ValueError("angles and factors must have the same length.")
+        group_ids = np.unique(f)
+        q = int(group_ids.shape[0])
+        n = int(a.shape[0])
+        if q < 2:
+            raise ValueError("circular_anova requires at least two groups.")
+        if n <= q:
+            raise ValueError("Not enough samples for ANOVA degrees of freedom.")
 
-    A = np.exp(1j * a)
-    R = float(np.abs(np.mean(A)))
-    Ri = np.zeros(q, dtype=float)
-    Ni = np.zeros(q, dtype=float)
-    ki = np.zeros(q, dtype=float)
-    for i, gid in enumerate(group_ids):
-        mask = f == gid
-        group_angles = a[mask]
-        Ni[i] = float(group_angles.shape[0])
-        Ri[i] = float(np.abs(np.mean(np.exp(1j * group_angles))))
-        ki[i] = float(concentration(group_angles))
-    if np.any(Ni < 2):
-        raise ValueError("Each group must contain at least two observations.")
+        if m == "ww":
+            A = np.exp(1j * a)
+            R = float(np.abs(np.mean(A)))
+            Ri = np.zeros(q, dtype=float)
+            Ni = np.zeros(q, dtype=float)
+            ki = np.zeros(q, dtype=float)
+            for i, gid in enumerate(group_ids):
+                mask = f == gid
+                group_angles = a[mask]
+                Ni[i] = float(group_angles.shape[0])
+                Ri[i] = float(np.abs(np.mean(np.exp(1j * group_angles))))
+                ki[i] = float(concentration(group_angles))
+            if np.any(Ni < 2):
+                raise ValueError("Each group must contain at least two observations.")
 
-    ssw = float(n - np.sum(Ni * Ri))
-    ssb = float(np.sum(Ni * Ri) - n * R)
-    F_stat = float((n - q) / (q - 1) * ssb / max(ssw, 1e-12))
-    kappa = float(np.sum(ki * Ni) / n)
-    if 2.0 < kappa < 10.0:
-        F_stat *= 1.0 + 3.0 / (8.0 * kappa)
-    p = float(1.0 - f_dist.cdf(F_stat, q - 1, n - q))
-    return {
-        "p": p,
-        "F": F_stat,
-        "method": "ww",
-        "df_between": int(q - 1),
-        "df_within": int(n - q),
-        "group_ids": group_ids,
-        "group_counts": Ni.astype(int),
-    }
+            ssw = float(n - np.sum(Ni * Ri))
+            ssb = float(np.sum(Ni * Ri) - n * R)
+            f_stat = float((n - q) / (q - 1) * ssb / max(ssw, 1e-12))
+            kappa = float(np.sum(ki * Ni) / n)
+            if 2.0 < kappa < 10.0:
+                f_stat *= 1.0 + 3.0 / (8.0 * kappa)
+            p = float(1.0 - f_dist.cdf(f_stat, q - 1, n - q))
+            return {
+                "p": p,
+                "F": f_stat,
+                "method": "ww",
+                "df_between": int(q - 1),
+                "df_within": int(n - q),
+                "group_ids": group_ids,
+                "group_counts": Ni.astype(int),
+            }
+
+        if m not in ("l2", "lr"):
+            raise ValueError("One-way circular_anova method must be one of {'ww','l2','lr'}.")
+        f_stat, _, counts = _oneway_location_statistic(a, f)
+        rng = np.random.default_rng(random_seed)
+        surrogates = np.empty(int(n_randomizations), dtype=float)
+        for i in range(int(n_randomizations)):
+            perm = rng.permutation(f.shape[0])
+            surrogates[i], _, _ = _oneway_location_statistic(a, f[perm])
+        p = float((1.0 + np.sum(surrogates >= f_stat)) / (int(n_randomizations) + 1.0))
+        return {
+            "p": p,
+            "F": float(f_stat),
+            "method": m,
+            "group_ids": group_ids,
+            "group_counts": counts.astype(int),
+            "n_randomizations": int(n_randomizations),
+        }
+
+    if f_raw.ndim == 2 and f_raw.shape[1] == 2:
+        if a.shape[0] != f_raw.shape[0]:
+            raise ValueError("angles and factors must have matching first dimension.")
+        if m != "lr":
+            raise NotImplementedError("Two-way circular_anova currently supports method='lr' only.")
+
+        f1 = f_raw[:, 0]
+        f2 = f_raw[:, 1]
+        f_obs, meta = _twoway_lr_stats(a, f1, f2)
+        rng = np.random.default_rng(random_seed)
+        f_perm = np.empty((int(n_randomizations), 3), dtype=float)
+        for i in range(int(n_randomizations)):
+            perm = rng.permutation(a.shape[0])
+            f_perm[i, :], _ = _twoway_lr_stats(a[perm], f1, f2)
+        p = (1.0 + np.sum(f_perm >= f_obs[None, :], axis=0)) / (int(n_randomizations) + 1.0)
+        return {
+            "p": p.astype(float),
+            "F": f_obs.astype(float),
+            "method": "lr",
+            "terms": np.array(["factor1", "factor2", "interaction"], dtype=object),
+            "n_randomizations": int(n_randomizations),
+            "levels1": meta["levels1"],
+            "levels2": meta["levels2"],
+            "cell_counts": meta["cell_counts"],
+        }
+
+    raise ValueError("factors must be a 1D group vector or Nx2 matrix for two-way analysis.")
 
 
 def multinomial_confidence_intervals(samples: np.ndarray, alpha: float = 0.05) -> dict[str, np.ndarray]:

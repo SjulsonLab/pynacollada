@@ -62,7 +62,9 @@ Archive policy for this project:
    2. waveform asymmetry and cycle-count descriptors
    3. spectral-entropy and broadband artifact z-score summaries
 7. FMAT-style circular/statistical tests:
-   1. `CircularANOVA` (one-way Watson-Williams mode)
+   1. `CircularANOVA`:
+      1. one-way `ww`, `l2`, `lr`
+      2. two-way `lr` (2x2 balanced design)
    2. `WatsonU2Test`
    3. `BartlettTest`
    4. `FisherTest`
@@ -109,7 +111,7 @@ What remains missing after current SWR detector:
 High-value missing functions/classes of functionality:
 
 1. circular-statistics suite:
-   1. two-way/alternative-method `CircularANOVA` variants (`l2`/`lr`)
+   1. (no major gaps currently in this subset)
 2. distribution/statistical tests:
    1. (no major gaps currently in this subset)
 3. advanced sample transforms still absent as polished APIs:

@@ -182,6 +182,97 @@ def test_circular_anova_oneway_detects_mean_difference() -> None:
     np.testing.assert_allclose(out["F"], f_alias)
 
 
+def test_circular_anova_oneway_lr_and_l2_detect_difference() -> None:
+    rng = np.random.default_rng(13)
+    g1 = 0.15 * rng.standard_normal(100)
+    g2 = 0.9 + 0.15 * rng.standard_normal(100)
+    g3 = 1.8 + 0.15 * rng.standard_normal(100)
+    angles = np.concatenate((g1, g2, g3))
+    groups = np.concatenate(
+        (
+            np.ones(g1.size, dtype=int),
+            2 * np.ones(g2.size, dtype=int),
+            3 * np.ones(g3.size, dtype=int),
+        )
+    )
+
+    out_lr = circular_anova(angles, groups, method="lr", n_randomizations=400, random_seed=0)
+    out_l2 = circular_anova(angles, groups, method="l2", n_randomizations=400, random_seed=0)
+
+    assert out_lr["method"] == "lr"
+    assert out_l2["method"] == "l2"
+    assert out_lr["F"] > 0.0
+    assert out_l2["F"] > 0.0
+    assert out_lr["p"] < 0.05
+    assert out_l2["p"] < 0.05
+    np.testing.assert_array_equal(out_lr["group_counts"], np.array([100, 100, 100], dtype=int))
+    np.testing.assert_array_equal(out_l2["group_counts"], np.array([100, 100, 100], dtype=int))
+
+
+def test_circular_anova_twoway_lr_balanced_design() -> None:
+    rng = np.random.default_rng(14)
+    per_cell = 70
+    means = {
+        (1, 1): 0.0,
+        (1, 2): 1.0,
+        (2, 1): 1.2,
+        (2, 2): 2.2,
+    }
+    angles_blocks = []
+    factor1 = []
+    factor2 = []
+    for (a_level, b_level), mu in means.items():
+        angles_blocks.append(mu + 0.2 * rng.standard_normal(per_cell))
+        factor1.append(np.full(per_cell, a_level, dtype=int))
+        factor2.append(np.full(per_cell, b_level, dtype=int))
+
+    angles = np.concatenate(angles_blocks)
+    factors = np.column_stack((np.concatenate(factor1), np.concatenate(factor2)))
+
+    out = circular_anova(angles, factors, method="lr", n_randomizations=350, random_seed=0)
+    p_alias, f_alias = CircularANOVA(angles, factors, method="lr")
+
+    assert out["method"] == "lr"
+    assert out["terms"].shape == (3,)
+    assert out["F"].shape == (3,)
+    assert out["p"].shape == (3,)
+    assert out["F"][0] > 0.0
+    assert out["F"][1] > 0.0
+    assert out["p"][0] < 0.05
+    assert out["p"][1] < 0.05
+    np.testing.assert_array_equal(out["cell_counts"], per_cell * np.ones((2, 2), dtype=int))
+    assert np.asarray(p_alias).shape == (3,)
+    assert np.asarray(f_alias).shape == (3,)
+
+
+def test_circular_anova_twoway_lr_requires_balanced_design() -> None:
+    rng = np.random.default_rng(15)
+    n = 40
+    angles = np.concatenate(
+        (
+            0.1 * rng.standard_normal(n),
+            0.8 + 0.1 * rng.standard_normal(n),
+            1.0 + 0.1 * rng.standard_normal(n),
+            1.9 + 0.1 * rng.standard_normal(n - 5),
+        )
+    )
+    factors = np.concatenate(
+        (
+            np.column_stack((np.ones(n, dtype=int), np.ones(n, dtype=int))),
+            np.column_stack((np.ones(n, dtype=int), 2 * np.ones(n, dtype=int))),
+            np.column_stack((2 * np.ones(n, dtype=int), np.ones(n, dtype=int))),
+            np.column_stack((2 * np.ones(n - 5, dtype=int), 2 * np.ones(n - 5, dtype=int))),
+        ),
+        axis=0,
+    )
+
+    try:
+        circular_anova(angles, factors, method="lr", n_randomizations=50, random_seed=0)
+        assert False, "Expected ValueError for unbalanced two-way design."
+    except ValueError as exc:
+        assert "balanced design" in str(exc).lower()
+
+
 def test_multinomial_confidence_intervals_basic_properties() -> None:
     samples = np.array([20, 30, 50], dtype=float)
     out = multinomial_confidence_intervals(samples, alpha=0.05)
