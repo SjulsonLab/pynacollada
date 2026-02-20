@@ -3,17 +3,25 @@ from __future__ import annotations
 import numpy as np
 
 from pynacollada import (
+    BartlettTest,
+    CircularANOVA,
     CircularConfidenceIntervals,
     ConcentrationTest,
+    FisherTest,
     CircularRegression,
     CircularVariance,
     Concentration,
+    WatsonU2Test,
+    bartlett_test,
+    circular_anova,
     circular_confidence_intervals,
     circular_mean,
     concentration_test,
+    fisher_test,
     circular_regression,
     circular_variance,
     concentration,
+    watson_u2_test,
 )
 
 
@@ -107,3 +115,66 @@ def test_concentration_test_no_difference_case() -> None:
 
     out = concentration_test(angles, groups, alpha=0.05, n_randomizations=500, random_seed=0)
     assert out["p"] > 0.01
+
+
+def test_fisher_test_detects_variance_difference() -> None:
+    rng = np.random.default_rng(0)
+    x1 = rng.normal(0.0, 0.3, size=200)
+    x2 = rng.normal(0.0, 1.2, size=200)
+    out = fisher_test(x1, x2, alpha=0.05)
+    h_alias, p_alias, f_alias = FisherTest(x1, x2, alpha=0.05)
+
+    assert out["h"] is True
+    assert out["p"] < 0.05
+    assert h_alias is True
+    np.testing.assert_allclose(out["p"], p_alias)
+    np.testing.assert_allclose(out["f"], f_alias)
+
+
+def test_bartlett_test_detects_group_variance_difference() -> None:
+    rng = np.random.default_rng(1)
+    g1 = rng.normal(0.0, 0.4, size=150)
+    g2 = rng.normal(0.0, 1.0, size=150)
+    g3 = rng.normal(0.0, 0.5, size=150)
+    values = np.concatenate((g1, g2, g3))
+    group = np.concatenate((np.ones(g1.size), 2 * np.ones(g2.size), 3 * np.ones(g3.size)))
+    data = np.column_stack((values, group))
+
+    out = bartlett_test(values, group, alpha=0.05)
+    h_alias, p_alias, t_alias = BartlettTest(data, alpha=0.05)
+
+    assert out["h"] is True
+    assert out["p"] < 0.05
+    assert h_alias is True
+    np.testing.assert_allclose(out["p"], p_alias)
+    np.testing.assert_allclose(out["T"], t_alias)
+
+
+def test_watson_u2_test_detects_circular_difference() -> None:
+    rng = np.random.default_rng(2)
+    g1 = 0.2 * rng.standard_normal(120)
+    g2 = np.pi + 0.2 * rng.standard_normal(120)
+
+    out = watson_u2_test(g1, g2, alpha=0.05)
+    h_alias, u2_alias = WatsonU2Test(g1, g2, alpha=0.05)
+
+    assert out["h"] is True
+    assert out["U2"] > 0.0
+    assert h_alias is True
+    np.testing.assert_allclose(out["U2"], u2_alias)
+
+
+def test_circular_anova_oneway_detects_mean_difference() -> None:
+    rng = np.random.default_rng(3)
+    g1 = 0.2 * rng.standard_normal(140)
+    g2 = 1.2 + 0.2 * rng.standard_normal(140)
+    angles = np.concatenate((g1, g2))
+    groups = np.concatenate((np.ones(g1.size, dtype=int), 2 * np.ones(g2.size, dtype=int)))
+
+    out = circular_anova(angles, groups, method="ww")
+    p_alias, f_alias = CircularANOVA(angles, groups, method="ww")
+
+    assert out["p"] < 0.05
+    assert out["F"] > 0.0
+    np.testing.assert_allclose(out["p"], p_alias)
+    np.testing.assert_allclose(out["F"], f_alias)

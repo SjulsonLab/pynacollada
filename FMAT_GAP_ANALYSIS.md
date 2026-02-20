@@ -61,6 +61,11 @@ Archive policy for this project:
    1. ripple/sharp-wave and ripple/broadband energy ratios
    2. waveform asymmetry and cycle-count descriptors
    3. spectral-entropy and broadband artifact z-score summaries
+7. FMAT-style circular/statistical tests:
+   1. `CircularANOVA` (one-way Watson-Williams mode)
+   2. `WatsonU2Test`
+   3. `BartlettTest`
+   4. `FisherTest`
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -81,13 +86,9 @@ What remains missing after current SWR detector:
 High-value missing functions/classes of functionality:
 
 1. circular-statistics suite:
-   1. `CircularANOVA`
-   2. `CircularRegression`
-   3. `CircularConfidenceIntervals`
-   4. concentration tests
+   1. two-way/alternative-method `CircularANOVA` variants (`l2`/`lr`)
 2. distribution/statistical tests:
-   1. `BartlettTest`, `FisherTest`, `WatsonU2Test`
-   2. multinomial confidence interval tools
+   1. multinomial confidence interval tools
 3. advanced sample transforms still absent as polished APIs:
    1. `AdaptiveSmooth`
    2. `DistanceTransform`

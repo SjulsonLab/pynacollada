@@ -6,7 +6,8 @@ from typing import Any
 
 import numpy as np
 from scipy.optimize import minimize
-from scipy.stats import f
+from scipy.stats import bartlett as _bartlett
+from scipy.stats import f as f_dist
 from scipy.stats import norm
 
 
@@ -275,7 +276,7 @@ def concentration_test(
 
     fr = _compute_fr(g, mus)
     if kappa_med >= 1.0:
-        p = 1.0 - f.cdf(fr, r - 1, int(np.sum(counts) - r))
+        p = 1.0 - f_dist.cdf(fr, r - 1, int(np.sum(counts) - r))
         p = 2.0 * min(p, 1.0 - p)
     else:
         rng = np.random.default_rng(random_seed)
@@ -311,6 +312,307 @@ def concentration_test(
     }
 
 
+_WATSON_M1 = np.array(
+    [5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, np.inf],
+    dtype=float,
+)
+_WATSON_M2 = np.array(
+    [5, 6, 7, 8, 9, 10, 11, 12, 6, 7, 8, 9, 10, 11, 12, 7, 8, 9, 10, 11, 12, 8, 9, 10, 11, 12, 9, 10, 11, 12, 10, 11, 12, np.inf],
+    dtype=float,
+)
+_WATSON_A01 = np.array(
+    [
+        np.nan,
+        np.nan,
+        np.nan,
+        np.nan,
+        0.28,
+        0.289,
+        0.297,
+        0.261,
+        np.nan,
+        0.282,
+        0.298,
+        0.262,
+        0.248,
+        0.262,
+        0.259,
+        0.304,
+        0.272,
+        0.255,
+        0.262,
+        0.253,
+        0.252,
+        0.25,
+        0.258,
+        0.249,
+        0.252,
+        0.252,
+        0.266,
+        0.254,
+        0.255,
+        0.254,
+        0.255,
+        0.255,
+        0.255,
+        0.268,
+    ],
+    dtype=float,
+)
+_WATSON_A05 = np.array(
+    [
+        0.225,
+        0.242,
+        0.2,
+        0.215,
+        0.191,
+        0.196,
+        0.19,
+        0.186,
+        0.206,
+        0.194,
+        0.196,
+        0.193,
+        0.19,
+        0.187,
+        0.183,
+        0.199,
+        0.182,
+        0.182,
+        0.187,
+        0.184,
+        0.186,
+        0.184,
+        0.186,
+        0.185,
+        0.184,
+        0.185,
+        0.187,
+        0.186,
+        0.185,
+        0.185,
+        0.185,
+        0.186,
+        0.185,
+        0.187,
+    ],
+    dtype=float,
+)
+
+
+def _watson_u2_statistic(group1: np.ndarray, group2: np.ndarray) -> float:
+    g1 = np.asarray(group1, dtype=float).reshape(-1)
+    g2 = np.asarray(group2, dtype=float).reshape(-1)
+    n1 = int(g1.shape[0])
+    n2 = int(g2.shape[0])
+    n = n1 + n2
+    data = np.column_stack((np.concatenate((g1, g2)), np.concatenate((np.zeros(n1, dtype=int), np.ones(n2, dtype=int)))))
+    data = data[np.argsort(data[:, 0])]
+    in_g1 = data[:, 1] == 0
+    i = np.cumsum(in_g1.astype(float)) / n1
+    j = np.cumsum((~in_g1).astype(float)) / n2
+    dk = i - j
+    return float(n1 * n2 / (n**2) * (np.sum(dk**2) - (np.sum(dk) ** 2) / n))
+
+
+def _watson_critical_value(n1: int, n2: int, alpha: float) -> float:
+    k1 = float(min(n1, n2))
+    k2 = float(max(n1, n2))
+    if k1 > 10:
+        k1 = np.inf
+    if k2 > 12:
+        k2 = np.inf
+    if alpha == 0.01:
+        table = _WATSON_A01
+    elif alpha == 0.05:
+        table = _WATSON_A05
+    else:
+        raise ValueError("Watson critical-table mode supports alpha=0.05 or alpha=0.01.")
+    idx = np.flatnonzero((_WATSON_M1 == k1) & (_WATSON_M2 == k2))
+    if idx.size == 0 or np.isnan(table[idx[0]]):
+        raise ValueError(f"Watson U2 critical value unavailable for n1={n1}, n2={n2}, alpha={alpha}.")
+    return float(table[idx[0]])
+
+
+def watson_u2_test(
+    group1: np.ndarray,
+    group2: np.ndarray,
+    alpha: float = 0.05,
+    n_randomizations: int = 2000,
+    *,
+    random_seed: int | None = None,
+) -> dict[str, Any]:
+    """
+    Watson U2 two-sample test for circular data.
+
+    For alpha in {0.05, 0.01}, uses FMAT critical-value table.
+    For other alpha values, falls back to randomization p-value estimation.
+    """
+    g1 = np.asarray(group1, dtype=float).reshape(-1)
+    g2 = np.asarray(group2, dtype=float).reshape(-1)
+    n1 = int(g1.shape[0])
+    n2 = int(g2.shape[0])
+    if n1 < 5 or n2 < 5:
+        raise ValueError("watson_u2_test requires at least 5 angles per group.")
+    if not (0.0 < alpha < 1.0):
+        raise ValueError("alpha must be between 0 and 1.")
+
+    u2 = _watson_u2_statistic(g1, g2)
+    if alpha in (0.05, 0.01):
+        critical = _watson_critical_value(n1, n2, alpha)
+        return {"h": bool(u2 >= critical), "U2": float(u2), "critical": float(critical), "p": np.nan, "method": "table"}
+
+    rng = np.random.default_rng(random_seed)
+    all_data = np.concatenate((g1, g2))
+    labels = np.concatenate((np.zeros(n1, dtype=int), np.ones(n2, dtype=int)))
+    surrogates = np.empty(int(n_randomizations), dtype=float)
+    for i in range(int(n_randomizations)):
+        perm = rng.permutation(labels.shape[0])
+        lp = labels[perm]
+        surrogates[i] = _watson_u2_statistic(all_data[lp == 0], all_data[lp == 1])
+    p = float((1.0 + np.sum(surrogates >= u2)) / (surrogates.shape[0] + 1.0))
+    critical = float(np.percentile(surrogates, 100.0 * (1.0 - alpha)))
+    return {"h": bool(p < alpha), "U2": float(u2), "critical": critical, "p": p, "method": "randomization"}
+
+
+def fisher_test(samples1: np.ndarray, samples2: np.ndarray, alpha: float = 0.05) -> dict[str, Any]:
+    """Two-sample F-test for equality of variances."""
+    x1 = np.asarray(samples1, dtype=float).reshape(-1)
+    x2 = np.asarray(samples2, dtype=float).reshape(-1)
+    if x1.size == 0 or x2.size == 0:
+        return {"h": False, "p": 0.0, "f": 0.0, "df1": 0, "df2": 0}
+    if x1.size < 2 or x2.size < 2:
+        raise ValueError("fisher_test requires at least 2 samples per group.")
+    if not (0.0 < alpha < 1.0):
+        raise ValueError("alpha must be between 0 and 1.")
+
+    var1 = float(np.var(x1, ddof=1))
+    var2 = float(np.var(x2, ddof=1))
+    df1 = int(x1.size - 1)
+    df2 = int(x2.size - 1)
+    if np.isclose(var1, 0.0) and np.isclose(var2, 0.0):
+        return {"h": False, "p": 1.0, "f": 1.0, "df1": df1, "df2": df2}
+
+    ratio = var1 / max(var2, 1e-15)
+    if ratio >= 1.0:
+        f_stat = float(ratio)
+        p = float(2.0 * f_dist.sf(f_stat, df1, df2))
+    else:
+        f_stat = float(1.0 / max(ratio, 1e-15))
+        p = float(2.0 * f_dist.sf(f_stat, df2, df1))
+    p = float(np.clip(p, 0.0, 1.0))
+    return {"h": bool(p < alpha), "p": p, "f": f_stat, "df1": df1, "df2": df2}
+
+
+def bartlett_test(values: np.ndarray, group: np.ndarray | None = None, alpha: float = 0.05) -> dict[str, Any]:
+    """
+    Bartlett test for homogeneity of variances across groups.
+
+    Parameters
+    ----------
+    values
+        Values vector or Nx2 matrix `[value, group]` when `group is None`.
+    group
+        Group labels when `values` is a vector.
+    """
+    if not (0.0 < alpha < 1.0):
+        raise ValueError("alpha must be between 0 and 1.")
+
+    if group is None:
+        arr = np.asarray(values, dtype=float)
+        if arr.ndim != 2 or arr.shape[1] != 2:
+            raise ValueError("When group is None, values must be an Nx2 matrix [value, group].")
+        x = arr[:, 0]
+        g = arr[:, 1]
+    else:
+        x = np.asarray(values, dtype=float).reshape(-1)
+        g = np.asarray(group).reshape(-1)
+        if x.shape[0] != g.shape[0]:
+            raise ValueError("values and group must have the same length.")
+
+    unique = np.unique(g)
+    if unique.shape[0] < 2:
+        raise ValueError("bartlett_test requires at least two groups.")
+    groups = [x[g == u] for u in unique]
+    if any(v.shape[0] < 2 for v in groups):
+        raise ValueError("bartlett_test requires at least 2 observations per group.")
+
+    t_stat, p = _bartlett(*groups)
+    variances = np.array([np.var(v, ddof=1) for v in groups], dtype=float)
+    counts = np.array([v.shape[0] for v in groups], dtype=int)
+    return {
+        "h": bool(p < alpha),
+        "p": float(p),
+        "T": float(t_stat),
+        "variances": variances,
+        "group_ids": unique,
+        "group_counts": counts,
+    }
+
+
+def circular_anova(
+    angles: np.ndarray,
+    factors: np.ndarray,
+    method: str = "ww",
+) -> dict[str, Any]:
+    """
+    Circular ANOVA (currently one-way Watson-Williams method).
+
+    Notes
+    -----
+    Only one-way Watson-Williams (`method='ww'`) is implemented in this version.
+    """
+    a = np.asarray(angles, dtype=float).reshape(-1)
+    f = np.asarray(factors).reshape(-1)
+    if a.shape[0] != f.shape[0]:
+        raise ValueError("angles and factors must have the same length.")
+    if a.shape[0] == 0:
+        return {"p": np.nan, "F": np.nan, "method": str(method).lower()}
+
+    m = str(method).lower()
+    if m != "ww":
+        raise NotImplementedError("Only one-way Watson-Williams method ('ww') is currently implemented.")
+
+    group_ids = np.unique(f)
+    q = int(group_ids.shape[0])
+    n = int(a.shape[0])
+    if q < 2:
+        raise ValueError("circular_anova requires at least two groups.")
+    if n <= q:
+        raise ValueError("Not enough samples for ANOVA degrees of freedom.")
+
+    A = np.exp(1j * a)
+    R = float(np.abs(np.mean(A)))
+    Ri = np.zeros(q, dtype=float)
+    Ni = np.zeros(q, dtype=float)
+    ki = np.zeros(q, dtype=float)
+    for i, gid in enumerate(group_ids):
+        mask = f == gid
+        group_angles = a[mask]
+        Ni[i] = float(group_angles.shape[0])
+        Ri[i] = float(np.abs(np.mean(np.exp(1j * group_angles))))
+        ki[i] = float(concentration(group_angles))
+    if np.any(Ni < 2):
+        raise ValueError("Each group must contain at least two observations.")
+
+    ssw = float(n - np.sum(Ni * Ri))
+    ssb = float(np.sum(Ni * Ri) - n * R)
+    F_stat = float((n - q) / (q - 1) * ssb / max(ssw, 1e-12))
+    kappa = float(np.sum(ki * Ni) / n)
+    if 2.0 < kappa < 10.0:
+        F_stat *= 1.0 + 3.0 / (8.0 * kappa)
+    p = float(1.0 - f_dist.cdf(F_stat, q - 1, n - q))
+    return {
+        "p": p,
+        "F": F_stat,
+        "method": "ww",
+        "df_between": int(q - 1),
+        "df_within": int(n - q),
+        "group_ids": group_ids,
+        "group_counts": Ni.astype(int),
+    }
+
+
 def ConcentrationTest(
     angles: np.ndarray,
     group: np.ndarray,
@@ -328,3 +630,42 @@ def ConcentrationTest(
         random_seed=randomSeed,
     )
     return out["h"], out["p"]
+
+
+def WatsonU2Test(
+    group1: np.ndarray,
+    group2: np.ndarray,
+    alpha: float = 0.05,
+) -> tuple[bool, float]:
+    """MATLAB-compatibility alias for `watson_u2_test`."""
+    out = watson_u2_test(group1, group2, alpha=alpha)
+    return out["h"], out["U2"]
+
+
+def FisherTest(
+    samples1: np.ndarray,
+    samples2: np.ndarray,
+    alpha: float = 0.05,
+) -> tuple[bool, float, float]:
+    """MATLAB-compatibility alias for `fisher_test`."""
+    out = fisher_test(samples1, samples2, alpha=alpha)
+    return out["h"], out["p"], out["f"]
+
+
+def BartlettTest(
+    data: np.ndarray,
+    alpha: float = 0.05,
+) -> tuple[bool, float, float]:
+    """MATLAB-compatibility alias for `bartlett_test` with Nx2 input."""
+    out = bartlett_test(data, alpha=alpha)
+    return out["h"], out["p"], out["T"]
+
+
+def CircularANOVA(
+    angles: np.ndarray,
+    factors: np.ndarray,
+    method: str = "ww",
+) -> tuple[float, float]:
+    """MATLAB-compatibility alias for `circular_anova`."""
+    out = circular_anova(angles, factors, method=method)
+    return out["p"], out["F"]

@@ -21,17 +21,25 @@ from .swr import (
     ripple_stats,
 )
 from .circular_stats import (
+    BartlettTest,
+    CircularANOVA,
     CircularConfidenceIntervals,
+    FisherTest,
     ConcentrationTest,
     CircularRegression,
     CircularVariance,
     Concentration,
+    WatsonU2Test,
+    bartlett_test,
+    circular_anova,
     circular_confidence_intervals,
     circular_mean,
     concentration_test,
+    fisher_test,
     circular_regression,
     circular_variance,
     concentration,
+    watson_u2_test,
 )
 
 __all__ = [
@@ -63,5 +71,13 @@ __all__ = [
     "ConcentrationTest",
     "CircularConfidenceIntervals",
     "CircularRegression",
+    "CircularANOVA",
+    "WatsonU2Test",
+    "BartlettTest",
+    "FisherTest",
     "concentration_test",
+    "circular_anova",
+    "watson_u2_test",
+    "bartlett_test",
+    "fisher_test",
 ]
