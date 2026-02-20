@@ -10,9 +10,11 @@ from pynacollada import (
     detect_oscillatory_events,
     detect_ripples_nss,
     compute_ripple_event_stats,
+    compute_ripple_spike_coupling,
     detect_swr,
     detect_swr_jlong,
     ripple_feature_stats,
+    ripple_spike_coupling,
     ripple_stats,
 )
 
@@ -175,3 +177,41 @@ def test_compute_ripple_feature_stats_maps_data_stats() -> None:
     np.testing.assert_allclose(maps["ripples"], maps_alias["ripples"])
     np.testing.assert_allclose(data["duration"], data_alias["duration"])
     np.testing.assert_allclose(stats["acg"]["data"], stats_alias["acg"]["data"])
+
+
+def test_compute_ripple_spike_coupling() -> None:
+    lfp, truth_peaks = _make_synthetic_lfp()
+    out = detect_swr_jlong(lfp, params=_default_params(), random_seed=0)
+    support = lfp.time_support
+    support_start = float(np.asarray(support.start).reshape(-1)[0])
+    support_end = float(np.asarray(support.end).reshape(-1)[0])
+    rng = np.random.default_rng(0)
+
+    # Unit 0: concentrated near ripple peaks
+    u0 = []
+    for t0 in truth_peaks:
+        u0.extend((t0 + 0.01 * rng.standard_normal(25)).tolist())
+    u0 = np.asarray(u0, dtype=float)
+    u0 = u0[(u0 >= support_start) & (u0 <= support_end)]
+
+    # Unit 1: near-uniform baseline spikes
+    u1 = np.sort(rng.uniform(support_start, support_end, size=120))
+    spikes = nap.TsGroup(
+        {0: nap.Ts(t=np.sort(u0)), 1: nap.Ts(t=u1)},
+        time_support=support,
+    )
+
+    coupling = compute_ripple_spike_coupling(spikes, out, window=(-0.08, 0.08), bin_size=0.01)
+    coupling_alias = ripple_spike_coupling(spikes, out, window=(-0.08, 0.08), bin_size=0.01)
+
+    summary = coupling["summary"]
+    assert summary.shape[0] == 2
+    assert "participation_probability" in summary.columns
+    assert "rate_modulation_index" in summary.columns
+    assert coupling["peri_event_rate"].shape[1] == 2
+    assert coupling["peri_event_rate"].shape[0] == coupling["bins"].shape[0]
+
+    # Ripple-locked unit should be more coupled than baseline unit.
+    assert summary.loc[0, "participation_probability"] > summary.loc[1, "participation_probability"]
+
+    np.testing.assert_allclose(coupling["bins"], coupling_alias["bins"])

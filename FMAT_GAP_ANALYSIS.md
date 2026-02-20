@@ -49,6 +49,10 @@ Archive policy for this project:
    1. instantaneous ripple/frequency/phase/amplitude maps aligned to ripple peaks
    2. peak amplitude/frequency and duration outputs
    3. ripple peak autocorrelogram and pairwise summary correlations
+4. Ripple spike-coupling summaries:
+   1. per-unit ripple participation probability
+   2. in-ripple vs out-of-ripple firing-rate modulation
+   3. peri-ripple firing-rate profiles
 
 ## FMAT functionality still missing (high-value gaps)
 

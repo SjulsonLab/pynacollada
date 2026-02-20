@@ -984,6 +984,128 @@ def compute_ripple_event_stats(
     return pd.DataFrame(rows)
 
 
+def _count_spikes_in_intervals(times: np.ndarray, intervals: np.ndarray) -> tuple[int, np.ndarray]:
+    counts = np.zeros(intervals.shape[0], dtype=int)
+    total = 0
+    for i, (start_t, end_t) in enumerate(intervals):
+        i0 = int(np.searchsorted(times, start_t, side="left"))
+        i1 = int(np.searchsorted(times, end_t, side="right"))
+        c = max(0, i1 - i0)
+        counts[i] = c
+        total += c
+    return total, counts
+
+
+def _peri_event_rate(times: np.ndarray, events: np.ndarray, window: tuple[float, float], bin_size: float) -> tuple[np.ndarray, np.ndarray]:
+    edges = np.arange(window[0], window[1] + bin_size, bin_size, dtype=float)
+    if edges.size < 2:
+        raise ValueError("Invalid window/bin_size for peri-event histogram.")
+    hist = np.zeros(edges.size - 1, dtype=float)
+    for t0 in events:
+        lo = t0 + window[0]
+        hi = t0 + window[1]
+        i0 = int(np.searchsorted(times, lo, side="left"))
+        i1 = int(np.searchsorted(times, hi, side="right"))
+        if i1 <= i0:
+            continue
+        rel = times[i0:i1] - t0
+        h, _ = np.histogram(rel, bins=edges)
+        hist += h
+    n_events = max(1, events.shape[0])
+    rate = hist / (n_events * bin_size)
+    centers = (edges[:-1] + edges[1:]) / 2.0
+    return rate, centers
+
+
+def compute_ripple_spike_coupling(
+    spikes: nap.TsGroup,
+    ripples: Any,
+    *,
+    peaks: np.ndarray | None = None,
+    window: tuple[float, float] = (-0.1, 0.1),
+    bin_size: float = 0.005,
+) -> dict[str, Any]:
+    """
+    Compute per-unit ripple coupling summaries and peri-event firing rates.
+
+    Returns dictionary with:
+    - `summary`: pandas DataFrame indexed by unit id
+    - `bins`: peri-event bin centers
+    - `peri_event_rate`: DataFrame (rows=bins, cols=unit ids, values in Hz)
+    """
+    if not isinstance(spikes, nap.TsGroup):
+        raise TypeError("spikes must be a pynapple.TsGroup.")
+    if window[0] >= window[1]:
+        raise ValueError("window must be an increasing (start, end) tuple.")
+    if bin_size <= 0:
+        raise ValueError("bin_size must be positive.")
+
+    intervals = _coerce_events_array(ripples)
+    event_peaks = _coerce_peak_times(ripples, intervals, peaks=peaks)
+
+    if intervals.shape[0] == 0:
+        return {
+            "summary": pd.DataFrame(
+                columns=[
+                    "n_spikes_in_ripple",
+                    "n_spikes_total",
+                    "participation_count",
+                    "participation_probability",
+                    "rate_in_ripple_hz",
+                    "rate_out_ripple_hz",
+                    "rate_modulation_index",
+                ]
+            ),
+            "bins": np.array([], dtype=float),
+            "peri_event_rate": pd.DataFrame(),
+        }
+
+    ripple_duration = float(np.sum(intervals[:, 1] - intervals[:, 0]))
+    total_duration = float(spikes.time_support.tot_length())
+    out_duration = max(total_duration - ripple_duration, 1e-12)
+
+    unit_ids = list(spikes.keys())
+    rows = []
+    peri_columns: dict[Any, np.ndarray] = {}
+    bins = np.array([], dtype=float)
+
+    for unit in unit_ids:
+        unit_times = np.asarray(spikes[unit].as_units("s").index.values, dtype=float)
+        n_total = int(unit_times.shape[0])
+        n_in, interval_counts = _count_spikes_in_intervals(unit_times, intervals)
+        participation_count = int(np.sum(interval_counts > 0))
+        participation_probability = participation_count / max(1, intervals.shape[0])
+        n_out = max(0, n_total - n_in)
+
+        rate_in = n_in / max(ripple_duration, 1e-12)
+        rate_out = n_out / out_duration
+        denom = rate_in + rate_out
+        modulation = (rate_in - rate_out) / denom if denom > 0 else np.nan
+
+        rate_hist, centers = _peri_event_rate(unit_times, event_peaks, window, bin_size)
+        if bins.size == 0:
+            bins = centers
+        peri_columns[unit] = rate_hist
+
+        rows.append(
+            {
+                "unit": unit,
+                "n_spikes_in_ripple": n_in,
+                "n_spikes_total": n_total,
+                "participation_count": participation_count,
+                "participation_probability": participation_probability,
+                "rate_in_ripple_hz": rate_in,
+                "rate_out_ripple_hz": rate_out,
+                "rate_modulation_index": modulation,
+            }
+        )
+
+    summary = pd.DataFrame(rows).set_index("unit")
+    peri_event_rate = pd.DataFrame(peri_columns, index=bins)
+    peri_event_rate.index.name = "time_from_peak_s"
+    return {"summary": summary, "bins": bins, "peri_event_rate": peri_event_rate}
+
+
 def detect_swr(*args: Any, **kwargs: Any) -> dict[str, Any]:
     """Alias for `detect_swr_jlong`."""
     return detect_swr_jlong(*args, **kwargs)
@@ -997,3 +1119,8 @@ def ripple_stats(*args: Any, **kwargs: Any) -> pd.DataFrame:
 def ripple_feature_stats(*args: Any, **kwargs: Any) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
     """Alias for `compute_ripple_feature_stats`."""
     return compute_ripple_feature_stats(*args, **kwargs)
+
+
+def ripple_spike_coupling(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Alias for `compute_ripple_spike_coupling`."""
+    return compute_ripple_spike_coupling(*args, **kwargs)
