@@ -55,6 +55,10 @@ from .spike_cycle import (
     count_spikes_per_cycle,
     select_spikes,
 )
+from .ccg_fit import (
+    FitCCG,
+    fit_ccg,
+)
 
 __all__ = [
     "FMATRippleDetectorParams",
@@ -104,4 +108,6 @@ __all__ = [
     "count_spikes_per_cycle",
     "SelectSpikes",
     "CountSpikesPerCycle",
+    "fit_ccg",
+    "FitCCG",
 ]
