@@ -57,6 +57,10 @@ Archive policy for this project:
    1. per-unit ripple participation probability
    2. in-ripple vs out-of-ripple firing-rate modulation
    3. peri-ripple firing-rate profiles
+6. Ripple quality-control metrics:
+   1. ripple/sharp-wave and ripple/broadband energy ratios
+   2. waveform asymmetry and cycle-count descriptors
+   3. spectral-entropy and broadband artifact z-score summaries
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -70,8 +74,7 @@ FMAT references:
 
 What remains missing after current SWR detector:
 
-1. richer ripple quality metrics (band-specific energy ratios, asymmetry, cycle-level metrics),
-2. standardized ripple-centric outputs suitable for downstream population analyses.
+1. standardized ripple-centric outputs suitable for downstream population analyses.
 
 ## B. FMAT `General` analytics not fully represented
 

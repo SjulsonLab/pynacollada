@@ -1317,6 +1317,175 @@ def compute_ripple_event_stats(
     return pd.DataFrame(rows)
 
 
+def _coerce_band_for_fs(band: tuple[float, float], fs: float) -> tuple[float, float]:
+    low, high = map(float, band)
+    nyq = 0.5 * float(fs)
+    high = min(high, 0.98 * nyq)
+    low = max(low, 1e-3)
+    if not (0 < low < high):
+        raise ValueError(f"Invalid band {band} for sampling rate {fs} Hz.")
+    return low, high
+
+
+def compute_ripple_quality_metrics(
+    lfp: nap.Tsd | nap.TsdFrame,
+    ripples: Any,
+    *,
+    peaks: np.ndarray | None = None,
+    channel: int = 0,
+    ripple_band: tuple[float, float] = (100.0, 250.0),
+    sharp_wave_band: tuple[float, float] = (2.0, 40.0),
+    broadband_band: tuple[float, float] = (1.0, 400.0),
+    filter_order: int = 4,
+) -> pd.DataFrame:
+    """
+    Compute ripple quality-control metrics from raw LFP and ripple intervals.
+
+    Metrics include band-energy ratios, waveform asymmetry, cycle counts,
+    spectral entropy, and broadband artifact index.
+    """
+    if not isinstance(lfp, (nap.Tsd, nap.TsdFrame)):
+        raise TypeError("lfp must be a pynapple.Tsd or pynapple.TsdFrame.")
+
+    lfp_s = lfp.as_units("s")
+    times = np.asarray(lfp_s.index.values, dtype=float)
+    fs = float(lfp.rate)
+    if isinstance(lfp, nap.TsdFrame):
+        if channel < 0 or channel >= lfp.shape[1]:
+            raise ValueError(f"channel {channel} is out of range for lfp with {lfp.shape[1]} channels.")
+        signal = np.asarray(lfp_s.values[:, channel], dtype=float)
+        signal_tsd = nap.Tsd(t=times, d=signal, time_support=lfp.time_support)
+    else:
+        signal = np.asarray(lfp_s.values, dtype=float)
+        signal_tsd = nap.Tsd(t=times, d=signal, time_support=lfp.time_support)
+
+    events = _coerce_events_array(ripples)
+    if events.shape[0] == 0:
+        return pd.DataFrame(
+            columns=[
+                "start",
+                "end",
+                "duration_s",
+                "peak_time",
+                "ripple_rms",
+                "sharpwave_rms",
+                "broadband_rms",
+                "ripple_to_sharpwave_ratio",
+                "ripple_to_broadband_ratio",
+                "waveform_asymmetry",
+                "cycle_count",
+                "cycle_frequency_hz",
+                "spectral_entropy",
+                "broadband_peak_z",
+                "phase_at_peak",
+            ]
+        )
+
+    peak_times = _coerce_peak_times(ripples, events, peaks=peaks)
+    rip_low, rip_high = _coerce_band_for_fs(ripple_band, fs)
+    sw_low, sw_high = _coerce_band_for_fs(sharp_wave_band, fs)
+    bb_low, bb_high = _coerce_band_for_fs(broadband_band, fs)
+
+    ripple_sig = np.asarray(
+        bandpass_filter(signal_tsd, rip_low, rip_high, fs, order=filter_order).as_units("s").values,
+        dtype=float,
+    )
+    sw_sig = np.asarray(
+        bandpass_filter(signal_tsd, sw_low, sw_high, fs, order=filter_order).as_units("s").values,
+        dtype=float,
+    )
+    bb_sig = np.asarray(
+        bandpass_filter(signal_tsd, bb_low, bb_high, fs, order=filter_order).as_units("s").values,
+        dtype=float,
+    )
+    ripple_phase = np.angle(hilbert(ripple_sig))
+
+    bb_abs = np.abs(bb_sig)
+    bb_med = float(np.median(bb_abs))
+    bb_mad = float(np.median(np.abs(bb_abs - bb_med))) * 1.4826
+    bb_mad = max(bb_mad, _EPS)
+
+    rows = []
+    for i, (start_t, end_t) in enumerate(events):
+        i0 = int(np.searchsorted(times, start_t, side="left"))
+        i1 = int(np.searchsorted(times, end_t, side="right"))
+        duration = float(max(0.0, end_t - start_t))
+        if i1 - i0 < 3:
+            rows.append(
+                {
+                    "start": float(start_t),
+                    "end": float(end_t),
+                    "duration_s": duration,
+                    "peak_time": float(peak_times[i]),
+                    "ripple_rms": np.nan,
+                    "sharpwave_rms": np.nan,
+                    "broadband_rms": np.nan,
+                    "ripple_to_sharpwave_ratio": np.nan,
+                    "ripple_to_broadband_ratio": np.nan,
+                    "waveform_asymmetry": np.nan,
+                    "cycle_count": 0,
+                    "cycle_frequency_hz": np.nan,
+                    "spectral_entropy": np.nan,
+                    "broadband_peak_z": np.nan,
+                    "phase_at_peak": np.nan,
+                }
+            )
+            continue
+
+        seg_rip = ripple_sig[i0:i1]
+        seg_sw = sw_sig[i0:i1]
+        seg_bb = bb_sig[i0:i1]
+        seg_raw = signal[i0:i1]
+
+        ripple_rms = float(np.sqrt(np.mean(seg_rip**2)))
+        sharpwave_rms = float(np.sqrt(np.mean(seg_sw**2)))
+        broadband_rms = float(np.sqrt(np.mean(seg_bb**2)))
+        ratio_rs = ripple_rms / max(sharpwave_rms, _EPS)
+        ratio_rb = ripple_rms / max(broadband_rms, _EPS)
+
+        pos = float(np.max(seg_rip))
+        neg = float(np.abs(np.min(seg_rip)))
+        waveform_asymmetry = (pos - neg) / max(pos + neg, _EPS)
+
+        zero_cross = np.flatnonzero(np.diff(np.signbit(seg_rip)))
+        cycle_count = int(zero_cross.shape[0] // 2)
+        cycle_frequency = cycle_count / duration if duration > 0 else np.nan
+
+        nperseg = min(128, seg_raw.shape[0])
+        freqs, psd = welch(seg_raw, fs=fs, nperseg=nperseg)
+        if psd.size and np.sum(psd) > 0:
+            p = psd / np.sum(psd)
+            spectral_entropy = float(-np.sum(p * np.log(np.maximum(p, _EPS))) / np.log(p.shape[0]))
+        else:
+            spectral_entropy = np.nan
+
+        bb_peak_z = float((np.max(np.abs(seg_bb)) - bb_med) / bb_mad)
+        peak_idx = int(np.clip(_nearest_indices(times, np.array([peak_times[i]], dtype=float))[0], i0, i1 - 1))
+        phase_at_peak = float(ripple_phase[peak_idx])
+
+        rows.append(
+            {
+                "start": float(start_t),
+                "end": float(end_t),
+                "duration_s": duration,
+                "peak_time": float(peak_times[i]),
+                "ripple_rms": ripple_rms,
+                "sharpwave_rms": sharpwave_rms,
+                "broadband_rms": broadband_rms,
+                "ripple_to_sharpwave_ratio": ratio_rs,
+                "ripple_to_broadband_ratio": ratio_rb,
+                "waveform_asymmetry": waveform_asymmetry,
+                "cycle_count": cycle_count,
+                "cycle_frequency_hz": cycle_frequency,
+                "spectral_entropy": spectral_entropy,
+                "broadband_peak_z": bb_peak_z,
+                "phase_at_peak": phase_at_peak,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def _count_spikes_in_intervals(times: np.ndarray, intervals: np.ndarray) -> tuple[int, np.ndarray]:
     counts = np.zeros(intervals.shape[0], dtype=int)
     total = 0
@@ -1452,6 +1621,11 @@ def ripple_stats(*args: Any, **kwargs: Any) -> pd.DataFrame:
 def ripple_feature_stats(*args: Any, **kwargs: Any) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
     """Alias for `compute_ripple_feature_stats`."""
     return compute_ripple_feature_stats(*args, **kwargs)
+
+
+def ripple_quality_metrics(*args: Any, **kwargs: Any) -> pd.DataFrame:
+    """Alias for `compute_ripple_quality_metrics`."""
+    return compute_ripple_quality_metrics(*args, **kwargs)
 
 
 def ripple_spike_coupling(*args: Any, **kwargs: Any) -> dict[str, Any]:

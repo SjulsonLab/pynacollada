@@ -9,6 +9,7 @@ from pynacollada import (
     SWRDetectorParams,
     bandpass_filter,
     compute_ripple_feature_stats,
+    compute_ripple_quality_metrics,
     detect_oscillatory_events,
     detect_ripples_fmat,
     detect_ripples_nss,
@@ -18,6 +19,7 @@ from pynacollada import (
     detect_swr_jlong,
     find_ripples_fmat,
     ripple_feature_stats,
+    ripple_quality_metrics,
     ripple_spike_coupling,
     ripple_stats,
 )
@@ -253,6 +255,30 @@ def test_compute_ripple_feature_stats_maps_data_stats() -> None:
     np.testing.assert_allclose(maps["ripples"], maps_alias["ripples"])
     np.testing.assert_allclose(data["duration"], data_alias["duration"])
     np.testing.assert_allclose(stats["acg"]["data"], stats_alias["acg"]["data"])
+
+
+def test_compute_ripple_quality_metrics_outputs_expected_columns() -> None:
+    lfp, _ = _make_synthetic_lfp()
+    out = detect_swr_jlong(lfp, params=_default_params(), random_seed=0)
+
+    quality = compute_ripple_quality_metrics(lfp, out, channel=0)
+    quality_alias = ripple_quality_metrics(lfp, out, channel=0)
+
+    assert quality.shape[0] == out["timestamps"].shape[0]
+    expected_columns = {
+        "ripple_to_sharpwave_ratio",
+        "ripple_to_broadband_ratio",
+        "waveform_asymmetry",
+        "cycle_count",
+        "cycle_frequency_hz",
+        "spectral_entropy",
+        "broadband_peak_z",
+        "phase_at_peak",
+    }
+    assert expected_columns.issubset(quality.columns)
+    assert np.isfinite(quality["ripple_to_broadband_ratio"]).any()
+    assert np.isfinite(quality["spectral_entropy"]).any()
+    np.testing.assert_allclose(quality["duration_s"].values, quality_alias["duration_s"].values)
 
 
 def test_compute_ripple_spike_coupling() -> None:
