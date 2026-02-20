@@ -34,6 +34,12 @@ from .session import (
     open_session,
     set_current_session,
 )
+from .spikes import (
+    GetSpikeTimes,
+    LoadSpikeTimes,
+    get_spike_times,
+    load_spike_times,
+)
 
 __all__ = [
     "load_binary",
@@ -60,4 +66,8 @@ __all__ = [
     "SetCurrentSession",
     "GetCurrentSession",
     "ClearCurrentSession",
+    "load_spike_times",
+    "get_spike_times",
+    "LoadSpikeTimes",
+    "GetSpikeTimes",
 ]

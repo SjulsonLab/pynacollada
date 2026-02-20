@@ -96,6 +96,7 @@ from .io import (
     GetCurrentSession,
     LoadPar,
     LoadParameters,
+    LoadSpikeTimes,
     SessionContext,
     SetCurrentSession,
     SaveEvents,
@@ -108,9 +109,12 @@ from .io import (
     open_session,
     load_par,
     load_parameters,
+    load_spike_times,
     set_current_session,
+    get_spike_times,
     load_binary_chunk,
     save_events,
+    GetSpikeTimes,
 )
 
 __all__ = [
@@ -206,4 +210,8 @@ __all__ = [
     "SetCurrentSession",
     "GetCurrentSession",
     "ClearCurrentSession",
+    "load_spike_times",
+    "get_spike_times",
+    "LoadSpikeTimes",
+    "GetSpikeTimes",
 ]

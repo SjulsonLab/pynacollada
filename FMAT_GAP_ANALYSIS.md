@@ -101,6 +101,8 @@ Archive policy for this project:
    1. `GetLFP`/`get_lfp` using `pynapple` `Tsd`/`TsdFrame` outputs
 20. FMAT-style session context helpers:
    1. `SetCurrentSession`/`GetCurrentSession` compatibility wrappers
+21. FMAT-style spike-time helpers:
+   1. `LoadSpikeTimes` and `GetSpikeTimes` from `.res/.clu` files
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -139,7 +141,7 @@ High-value missing functions/classes of functionality:
 ## D. FMAT data/session abstractions not directly mapped
 
 FMAT’s `Data` and `IO` layers include session-global state and specific loader conventions (`SetCurrentSession`, `GetSpikes`, `LoadBinaryChunk`, etc.).  
-`pynapple` already has modern loaders; `pynacollada` now provides FMAT-compatible binary/event readers, XML parameter loading, an LFP convenience loader, and a minimal session-context API. Higher-level data wrappers (notably full `GetSpikes`) are still absent.
+`pynapple` already has modern loaders; `pynacollada` now provides FMAT-compatible binary/event readers, XML parameter loading, LFP/session helpers, and `.res/.clu` spike-time loaders. Higher-level data wrappers (notably full `GetSpikes` metadata/waveform support) are still absent.
 
 ## E. Plot/database ecosystems (likely non-goals)
 
