@@ -48,6 +48,12 @@ from .event_query import (
     get_events,
     get_event_types,
 )
+from .units import (
+    GetChannels,
+    GetUnits,
+    get_channels,
+    get_units,
+)
 
 __all__ = [
     "load_binary",
@@ -84,4 +90,8 @@ __all__ = [
     "get_event_types",
     "GetEvents",
     "GetEventTypes",
+    "get_channels",
+    "get_units",
+    "GetChannels",
+    "GetUnits",
 ]
