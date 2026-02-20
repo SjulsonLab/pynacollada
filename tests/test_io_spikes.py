@@ -3,6 +3,7 @@ from __future__ import annotations
 import textwrap
 
 import numpy as np
+from scipy.io import savemat
 
 from pynacollada import (
     GetSpikes,
@@ -38,6 +39,28 @@ def _write_session(session_dir, basename: str = "sessionSpk") -> None:
 
     np.savetxt(session_dir / f"{basename}.res.2", np.array([150, 250, 350, 450], dtype=int), fmt="%d")
     np.savetxt(session_dir / f"{basename}.clu.2", np.array([4, 3, 0, 3, 0], dtype=int), fmt="%d")
+
+
+def _write_cellinfo(session_dir, basename: str = "sessionSpk") -> None:
+    times = np.empty((3,), dtype=object)
+    times[0] = np.array([0.010, 0.018], dtype=float)
+    times[1] = np.array([0.025, 0.040, 0.055], dtype=float)
+    times[2] = np.array([0.030], dtype=float)
+    raw_waveforms = np.empty((3,), dtype=object)
+    raw_waveforms[0] = np.array([-20.0, -50.0, -10.0], dtype=float)
+    raw_waveforms[1] = np.array([-10.0, -30.0, -8.0], dtype=float)
+    raw_waveforms[2] = np.array([-5.0, -15.0, -4.0], dtype=float)
+
+    spikes = {
+        "UID": np.array([10, 20, 30], dtype=int),
+        "times": times,
+        "shankID": np.array([1, 1, 2], dtype=int),
+        "cluID": np.array([0, 2, 1], dtype=int),
+        "region": np.array(["CA1", "CA1", "CA3"], dtype=object),
+        "maxWaveformCh": np.array([4, 5, 6], dtype=int),
+        "rawWaveform": raw_waveforms,
+    }
+    savemat(session_dir / f"{basename}.spikes.cellinfo.mat", {"spikes": spikes})
 
 
 def test_load_spike_times_single_group(tmp_path) -> None:
@@ -113,3 +136,43 @@ def test_matlab_aliases_and_session_default(tmp_path) -> None:
     assert len(tsg) == 4
 
     clear_current_session()
+
+
+def test_get_spikes_cellinfo_source_and_auto_preference(tmp_path) -> None:
+    session = tmp_path / "sessionSpk"
+    session.mkdir()
+    _write_session(session)
+    _write_cellinfo(session)
+
+    auto_struct = get_spikes(base_path=session, source="auto", as_tsgroup=False)
+    assert auto_struct["source"] == "cellinfo"
+    np.testing.assert_array_equal(auto_struct["UID"], np.array([10, 20, 30], dtype=int))
+    assert auto_struct["numcells"] == 3
+    assert "rawWaveform" in auto_struct
+    assert len(auto_struct["times"]) == 3
+
+    cellinfo_tsg = get_spikes(base_path=session, source="cellinfo", as_tsgroup=True)
+    assert len(cellinfo_tsg) == 3
+
+
+def test_get_spikes_cellinfo_unit_filtering(tmp_path) -> None:
+    session = tmp_path / "sessionSpk"
+    session.mkdir()
+    _write_session(session)
+    _write_cellinfo(session)
+
+    # group 1 has clusters [0, 2]; -1 excludes 0 and 1, so only cluster 2.
+    single_units = get_spikes(base_path=session, source="cellinfo", units=[[1, -1]], as_tsgroup=False)
+    assert single_units["numcells"] == 1
+    np.testing.assert_array_equal(single_units["cluID"], np.array([2], dtype=int))
+
+    all_non_artifact = get_spikes(base_path=session, source="cellinfo", units=[[1, -2]], as_tsgroup=False)
+    assert all_non_artifact["numcells"] == 1
+    np.testing.assert_array_equal(all_non_artifact["cluID"], np.array([2], dtype=int))
+
+    all_clusters = get_spikes(base_path=session, source="cellinfo", units=[[1, -3]], as_tsgroup=False)
+    assert all_clusters["numcells"] == 2
+
+    alias_struct = GetSpikes(basePath=session, source="cellinfo")
+    assert isinstance(alias_struct, dict)
+    assert alias_struct["source"] == "cellinfo"
