@@ -146,6 +146,16 @@ from .FMA_toolbox.analyses_phase_state import (
     phase_distribution,
     phase_map,
 )
+from .FMA_toolbox.analyses_sync import (
+    ShortTimeCCG,
+    Sync,
+    SyncHist,
+    SyncMap,
+    short_time_ccg,
+    sync,
+    sync_hist,
+    sync_map,
+)
 from .io import (
     ClearCurrentSession,
     IsEvents,
@@ -320,6 +330,14 @@ __all__ = [
     "PhaseCurve",
     "PhaseMap",
     "BrainStates",
+    "sync",
+    "sync_map",
+    "sync_hist",
+    "short_time_ccg",
+    "Sync",
+    "SyncMap",
+    "SyncHist",
+    "ShortTimeCCG",
     "load_binary",
     "load_binary_chunk",
     "LoadBinary",
