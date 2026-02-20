@@ -1,32 +1,41 @@
 from __future__ import annotations
 
 import numpy as np
+import pynapple as nap
 
 from pynacollada import (
     AngularVelocity,
     CCGParameters,
     CV,
+    CompareDistributions,
     CoherenceBands,
+    DefineZone,
     Distance,
     FilterLFP,
     Frequency,
+    IsInZone,
     LinearVelocity,
     MovementPeriods,
     Phase,
     QuietPeriods,
     SpectrogramBands,
+    ThresholdSpikes,
     angular_velocity,
     ccg_parameters,
+    compare_distributions,
     coherence_bands,
     cv,
+    define_zone,
     distance,
     filter_lfp,
     frequency,
+    is_in_zone,
     linear_velocity,
     movement_periods,
     phase,
     quiet_periods,
     spectrogram_bands,
+    threshold_spikes,
 )
 
 
@@ -195,3 +204,57 @@ def test_filter_lfp_band_alias_and_shape() -> None:
 
     filt_alias = FilterLFP(lfp, "passband", "theta")
     np.testing.assert_allclose(filt, filt_alias)
+
+
+def test_define_zone_and_is_in_zone_intervalset_output() -> None:
+    zone = define_zone((100, 100), "rectangle", (20, 30, 20, 20))
+    assert zone.dtype == bool
+    assert zone.shape == (100, 100)
+
+    t = np.linspace(0.0, 1.0, 1000)
+    x = np.linspace(0.0, 1.0, 1000)
+    y = np.full_like(x, 0.4)
+    pos = np.column_stack((t, x, y))
+
+    intervals = is_in_zone(pos, zone)
+    assert isinstance(intervals, nap.IntervalSet)
+    assert intervals.shape[0] >= 1
+
+    intervals2, mask_tsd = IsInZone(pos, zone, return_mask=True)
+    assert isinstance(intervals2, nap.IntervalSet)
+    assert isinstance(mask_tsd, nap.Tsd)
+    assert np.sum(mask_tsd.values) > 0
+
+    zone_alias = DefineZone((100, 100), "rectangle", (20, 30, 20, 20))
+    np.testing.assert_array_equal(zone, zone_alias)
+
+
+def test_compare_distributions_and_threshold_spikes() -> None:
+    rng = np.random.default_rng(0)
+    g1 = rng.normal(loc=1.0, scale=0.2, size=(80, 20))
+    g2 = rng.normal(loc=0.0, scale=0.2, size=(80, 20))
+
+    h, stats = compare_distributions(g1, g2, n_shuffles=600, alpha=0.05, random_seed=1)
+    assert h is True
+    assert "observed" in stats
+    assert stats["observed"].shape[0] == g1.shape[1]
+
+    h2, _ = CompareDistributions(g1, g2, "nShuffles", 600, "alpha", 0.05, "randomSeed", 1)
+    assert h2 is True
+
+    amps = np.array(
+        [
+            [0.1, 1, 2, 50],
+            [0.2, 1, 2, 20],
+            [0.3, 1, 2, 10],
+            [0.4, 1, 3, 80],
+            [0.5, 1, 3, 20],
+        ],
+        dtype=float,
+    )
+    kept = threshold_spikes(amps, factor=1.5)
+    assert kept.shape[1] == 3
+    assert kept.shape[0] < amps.shape[0]
+
+    kept2 = ThresholdSpikes(amps, 1.5)
+    np.testing.assert_allclose(kept, kept2)

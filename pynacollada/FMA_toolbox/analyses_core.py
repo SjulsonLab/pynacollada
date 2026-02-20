@@ -649,6 +649,265 @@ def ccg_parameters(*series_and_groups: Any) -> tuple[np.ndarray, np.ndarray, np.
     return out_times, out_ids, out_groups
 
 
+def define_zone(
+    size_xy: tuple[int, int] | list[int] | np.ndarray,
+    shape: str,
+    points: np.ndarray | list[float] | tuple[float, ...],
+) -> np.ndarray:
+    """Define a rectangular or circular boolean zone mask."""
+    s = np.asarray(size_xy, dtype=int).reshape(-1)
+    if s.size != 2 or np.any(s <= 0):
+        raise ValueError("size_xy must be [width, height] with strictly positive values.")
+    width, height = int(s[0]), int(s[1])
+    zone = np.zeros((height, width), dtype=bool)
+
+    shape_use = str(shape).strip().lower()
+    p = np.asarray(points, dtype=float).reshape(-1)
+    if shape_use == "rectangle":
+        if p.size != 4:
+            raise ValueError("rectangle points must be [x, y, width, height].")
+        x, y, w, h = np.round(p).astype(int)
+        if w <= 0 or h <= 0:
+            return zone
+        x0 = np.clip(x - 1, 0, width)
+        y0 = np.clip(y - 1, 0, height)
+        x1 = np.clip(x0 + w, 0, width)
+        y1 = np.clip(y0 + h, 0, height)
+        zone[y0:y1, x0:x1] = True
+        return zone
+    if shape_use == "circle":
+        if p.size != 3:
+            raise ValueError("circle points must be [x, y, radius].")
+        x, y, r = p
+        if r <= 0:
+            return zone
+        xs = np.arange(1, width + 1, dtype=float)
+        ys = np.arange(1, height + 1, dtype=float)
+        xx, yy = np.meshgrid(xs, ys)
+        zone = (xx - x) ** 2 + (yy - y) ** 2 <= float(r) ** 2
+        return zone
+    raise ValueError("shape must be 'rectangle' or 'circle'.")
+
+
+def _zone_occupancy_mask(positions: np.ndarray | nap.TsdFrame, zone: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return timestamps and boolean occupancy mask for each position sample."""
+    arr = _as_samples(positions)
+    z = np.asarray(zone, dtype=bool)
+    if z.ndim == 1:
+        z = z.reshape(1, -1)
+    if z.ndim != 2:
+        raise ValueError("zone must be a boolean vector or matrix.")
+
+    if arr.size == 0:
+        return np.array([], dtype=float), np.zeros(0, dtype=bool)
+    if np.any(arr[:, 1] < 0) or np.any(arr[:, 1] > 1):
+        raise ValueError("X coordinates should contain values in [0, 1].")
+
+    x_bins = z.shape[1]
+    x_idx = np.clip(np.floor(arr[:, 1] * x_bins).astype(int), 0, x_bins - 1)
+
+    if z.shape[0] == 1:
+        return arr[:, 0], z[0, x_idx]
+
+    if arr.shape[1] < 3:
+        raise ValueError("positions must contain y coordinates when zone is 2D.")
+    if np.any(arr[:, 2] < 0) or np.any(arr[:, 2] > 1):
+        raise ValueError("Y coordinates should contain values in [0, 1].")
+    y_bins = z.shape[0]
+    y_idx = np.clip(np.floor(arr[:, 2] * y_bins).astype(int), 0, y_bins - 1)
+    return arr[:, 0], z[y_idx, x_idx]
+
+
+def _mask_to_intervalset(times: np.ndarray, mask: np.ndarray) -> nap.IntervalSet:
+    t = np.asarray(times, dtype=float).reshape(-1)
+    m = np.asarray(mask, dtype=bool).reshape(-1)
+    if t.size == 0 or m.size == 0 or not np.any(m):
+        return nap.IntervalSet(start=np.array([], dtype=float), end=np.array([], dtype=float))
+    if t.shape[0] != m.shape[0]:
+        raise ValueError("times and mask must have same length.")
+    edges = np.diff(np.r_[False, m, False].astype(int))
+    starts = np.flatnonzero(edges == 1)
+    stops = np.flatnonzero(edges == -1) - 1
+    return nap.IntervalSet(start=t[starts], end=t[stops])
+
+
+def is_in_zone(
+    positions: np.ndarray | nap.TsdFrame,
+    zone: np.ndarray,
+    *,
+    return_mask: bool = False,
+) -> nap.IntervalSet | tuple[nap.IntervalSet, nap.Tsd]:
+    """Return in-zone occupancy as an IntervalSet, with optional boolean mask."""
+    times, mask = _zone_occupancy_mask(positions, zone)
+    intervals = _mask_to_intervalset(times, mask)
+    if not return_mask:
+        return intervals
+    mask_tsd = nap.Tsd(t=times, d=mask.astype(np.int8))
+    return intervals, mask_tsd
+
+
+def compare_distributions(
+    group1: np.ndarray,
+    group2: np.ndarray,
+    *,
+    n_shuffles: int = 5000,
+    alpha: float = 0.05,
+    max_iterations: int = 6,
+    tolerance: float = 0.8,
+    tail: str = "two",
+    random_seed: int | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Bootstrap comparison of two multivariate distributions."""
+    g1 = np.asarray(group1, dtype=float)
+    g2 = np.asarray(group2, dtype=float)
+    if g1.ndim == 1:
+        g1 = g1.reshape(-1, 1)
+    if g2.ndim == 1:
+        g2 = g2.reshape(-1, 1)
+    if g1.ndim != 2 or g2.ndim != 2:
+        raise ValueError("group1 and group2 must be 1D or 2D arrays.")
+    if g1.shape[1] != g2.shape[1]:
+        raise ValueError("group1 and group2 must have the same number of columns.")
+    if g1.shape[0] == 0 or g2.shape[0] == 0:
+        raise ValueError("group1 and group2 must be non-empty.")
+    if n_shuffles <= 0:
+        raise ValueError("n_shuffles must be positive.")
+    if not (0.0 < alpha < 1.0):
+        raise ValueError("alpha must be in (0, 1).")
+    if max_iterations < 2:
+        raise ValueError("max_iterations must be >= 2.")
+    if tolerance <= 0:
+        raise ValueError("tolerance must be > 0.")
+
+    n1 = g1.shape[0]
+    n2 = g2.shape[0]
+    n_bins = g1.shape[1]
+    is_multidim = n_bins > 1
+
+    combined = np.vstack((g1, g2))
+    rng = np.random.default_rng(random_seed)
+    diffs = np.empty((n_shuffles, n_bins), dtype=float)
+    for i in range(n_shuffles):
+        perm = rng.permutation(n1 + n2)
+        s1 = combined[perm[:n1], :]
+        s2 = combined[perm[n1:], :]
+        diffs[i, :] = np.nanmean(s1, axis=0) - np.nanmean(s2, axis=0)
+
+    tail_use = str(tail).lower()
+    if tail_use not in ("one", "two"):
+        raise ValueError("tail must be 'one' or 'two'.")
+
+    iteration = 0
+    deviation = np.inf
+    alpha_work = float(alpha)
+    alpha_path: list[float] = []
+    p_path: list[float] = []
+    pointwise: np.ndarray | None = None
+    global_ci: np.ndarray | None = None
+
+    while deviation * 100.0 > float(tolerance):
+        iteration += 1
+        if iteration > int(max_iterations):
+            break
+
+        if tail_use == "one":
+            quantiles = np.array([1.0 - alpha_work], dtype=float)
+            ci = np.quantile(diffs, quantiles, axis=0, method="linear").reshape(1, -1)
+            ci = np.vstack((ci, np.full_like(ci, -np.inf)))
+        else:
+            quantiles = np.array([alpha_work / 2.0, 1.0 - alpha_work / 2.0], dtype=float)
+            q = np.quantile(diffs, quantiles, axis=0, method="linear")
+            ci = np.vstack((q[1, :], q[0, :]))
+        pointwise = ci
+
+        if not is_multidim:
+            break
+
+        significant = (diffs > ci[0, :]) | (diffs < ci[1, :])
+        p_global = float(np.mean(np.any(significant, axis=1)))
+        alpha_path.append(alpha_work)
+        p_path.append(p_global)
+        global_ci = ci
+        deviation = abs(p_global - alpha)
+        if iteration == 1:
+            alpha_work = 0.003
+        else:
+            sgn = np.sign(p_global - alpha)
+            if deviation > 0.05:
+                alpha_work = alpha_work - sgn * deviation * 0.00075
+            else:
+                alpha_work = alpha_work - sgn * deviation * 0.033
+            alpha_work = max(alpha_work, 1e-3)
+
+    observed = np.nanmean(g1, axis=0) - np.nanmean(g2, axis=0)
+    stats: dict[str, Any] = {
+        "observed": observed,
+        "null": np.nanmean(diffs, axis=0),
+        "pointwise": pointwise if pointwise is not None else np.full((2, n_bins), np.nan, dtype=float),
+        "global": np.array([]),
+        "above": np.array([], dtype=bool),
+        "below": np.array([], dtype=bool),
+        "alpha": np.asarray(alpha_path, dtype=float),
+        "p": np.asarray(p_path, dtype=float),
+    }
+
+    if not is_multidim:
+        h = bool((observed > stats["pointwise"][0, :]) | (observed < stats["pointwise"][1, :]))
+        return h, stats
+
+    if global_ci is None:
+        global_ci = stats["pointwise"]
+    stats["global"] = global_ci
+    above_point = observed > stats["pointwise"][0, :]
+    below_point = observed < stats["pointwise"][1, :]
+    above = (observed > global_ci[0, :]) & above_point
+    below = (observed < global_ci[1, :]) & below_point
+    stats["above"] = above
+    stats["below"] = below
+    h = bool(np.any(above) or np.any(below))
+    return h, stats
+
+
+def threshold_spikes(
+    amplitudes: np.ndarray,
+    factor: float,
+    *,
+    units: np.ndarray | None = None,
+) -> np.ndarray:
+    """Apply post-hoc threshold scaling to spike amplitude tuples."""
+    amps = np.asarray(amplitudes, dtype=float)
+    if amps.ndim != 2 or amps.shape[1] < 4:
+        raise ValueError("amplitudes must be an NxM matrix with M >= 4.")
+    if not np.isfinite(factor):
+        raise ValueError("factor must be finite.")
+
+    all_units = None if units is None else np.asarray(units, dtype=float)
+    if all_units is not None and (all_units.ndim != 2 or all_units.shape[1] != 2):
+        raise ValueError("units must be an Nx2 matrix [group, cluster].")
+
+    unit_pairs = np.unique(amps[:, 1:3], axis=0)
+    out_rows: list[np.ndarray] = []
+    for group, cluster in unit_pairs:
+        this = amps[(amps[:, 1] == group) & (amps[:, 2] == cluster), :]
+        if this.shape[0] == 0:
+            continue
+        peak = np.nanmax(np.abs(this[:, 3:]), axis=1)
+        threshold = float(factor) * float(np.nanmin(peak))
+        keep = this[peak >= threshold, :3].copy()
+        if keep.shape[0] == 0:
+            continue
+        if all_units is not None:
+            group_rows = all_units[all_units[:, 0] == group, 1]
+            new_cluster = int(np.nanmax(group_rows) + 1) if group_rows.size > 0 else 1
+            all_units = np.vstack((all_units, np.array([[group, new_cluster]], dtype=float)))
+            keep[:, 2] = float(new_cluster)
+        out_rows.append(keep)
+
+    if not out_rows:
+        return np.empty((0, 3), dtype=float)
+    return np.vstack(out_rows)
+
+
 def AngularVelocity(X: np.ndarray | nap.TsdFrame, smooth: float = 0.0) -> np.ndarray:
     """MATLAB-style alias for :func:`angular_velocity`."""
     return angular_velocity(X, smooth=smooth)
@@ -776,6 +1035,55 @@ def CCGParameters(*series_and_groups: Any) -> tuple[np.ndarray, np.ndarray, np.n
     return ccg_parameters(*series_and_groups)
 
 
+def DefineZone(s: tuple[int, int] | list[int] | np.ndarray, shape: str, points: Any) -> np.ndarray:
+    """MATLAB-style alias for :func:`define_zone`."""
+    return define_zone(s, shape=shape, points=points)
+
+
+def IsInZone(
+    positions: np.ndarray | nap.TsdFrame,
+    zone: np.ndarray,
+    *args: Any,
+    **kwargs: Any,
+) -> nap.IntervalSet | tuple[nap.IntervalSet, nap.Tsd]:
+    """MATLAB-style alias for :func:`is_in_zone`."""
+    options = _collect_options(args, kwargs)
+    return_mask = bool(options.pop("returnmask", options.pop("return_mask", False)))
+    if options:
+        unexpected = ", ".join(sorted(options.keys()))
+        raise TypeError(f"Unexpected options: {unexpected}")
+    return is_in_zone(positions, zone, return_mask=return_mask)
+
+
+def CompareDistributions(group1: np.ndarray, group2: np.ndarray, *args: Any, **kwargs: Any) -> tuple[bool, dict[str, Any]]:
+    """MATLAB-style alias for :func:`compare_distributions`."""
+    options = _collect_options(args, kwargs)
+    mapped = {
+        "n_shuffles": int(options.pop("nshuffles", options.pop("n_shuffles", 5000))),
+        "alpha": float(options.pop("alpha", 0.05)),
+        "max_iterations": int(options.pop("max", options.pop("max_iterations", 6))),
+        "tolerance": float(options.pop("tolerance", 0.8)),
+        "tail": options.pop("tail", "two"),
+        "random_seed": options.pop("randomseed", options.pop("random_seed", None)),
+    }
+    _ = options.pop("show", None)
+    _ = options.pop("verbose", None)
+    if options:
+        unexpected = ", ".join(sorted(options.keys()))
+        raise TypeError(f"Unexpected options: {unexpected}")
+    return compare_distributions(group1, group2, **mapped)
+
+
+def ThresholdSpikes(amplitudes: np.ndarray, factor: float, *args: Any, **kwargs: Any) -> np.ndarray:
+    """MATLAB-style alias for :func:`threshold_spikes`."""
+    options = _collect_options(args, kwargs)
+    units = options.pop("units", None)
+    if options:
+        unexpected = ", ".join(sorted(options.keys()))
+        raise TypeError(f"Unexpected options: {unexpected}")
+    return threshold_spikes(amplitudes, factor=factor, units=units)
+
+
 __all__ = [
     "angular_velocity",
     "linear_velocity",
@@ -789,6 +1097,10 @@ __all__ = [
     "spectrogram_bands",
     "coherence_bands",
     "ccg_parameters",
+    "define_zone",
+    "is_in_zone",
+    "compare_distributions",
+    "threshold_spikes",
     "AngularVelocity",
     "LinearVelocity",
     "Distance",
@@ -801,4 +1113,8 @@ __all__ = [
     "SpectrogramBands",
     "CoherenceBands",
     "CCGParameters",
+    "DefineZone",
+    "IsInZone",
+    "CompareDistributions",
+    "ThresholdSpikes",
 ]
