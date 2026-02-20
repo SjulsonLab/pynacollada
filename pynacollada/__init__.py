@@ -1,5 +1,17 @@
-# -*- coding: utf-8 -*-
-# @Author: gviejo
-# @Date:   2022-01-17 13:49:58
-# @Last Modified by:   Alxec
-# @Last Modified time: 2025-12-04 16:04:00
+"""pynacollada public API."""
+
+from .swr import (
+    SWRDetectorParams,
+    compute_ripple_event_stats,
+    detect_swr,
+    detect_swr_jlong,
+    ripple_stats,
+)
+
+__all__ = [
+    "SWRDetectorParams",
+    "detect_swr_jlong",
+    "detect_swr",
+    "compute_ripple_event_stats",
+    "ripple_stats",
+]
