@@ -34,9 +34,20 @@ John’s detector code mixes:
 A literal one-shot parity implementation is high risk for regressions and hard to debug.  
 Recommended approach: **deliver parity in stages with explicit test gates** rather than chasing full surface-area parity in one jump.
 
-## 4. Proposed Scope for First Development Slice
+## 4. Pynapple-First API Policy
 
-### 4.1 SWR detection module (new production code)
+This project is now explicitly **pynapple-first** in API design:
+
+1. Canonical (snake_case) APIs must return `pynapple` objects by default (`IntervalSet`, `Tsd`, `TsdFrame`, `Ts`, `TsGroup`).
+2. FMAT-compatible wrappers (CamelCase) are allowed for parity and migration, but they are compatibility shells rather than the design center.
+3. Manual index/mask workflows should not be the primary public interface when interval/time-series objects are available.
+4. Mask/index outputs are permitted only as explicit opt-in secondary outputs (for parity testing/debugging).
+5. New tests must validate object-model behavior (types and interval semantics), not only numeric equality.
+6. When parity conflicts with robust `pynapple` object semantics, prefer `pynapple` semantics and document divergence.
+
+## 5. Proposed Scope for First Development Slice
+
+### 5.1 SWR detection module (new production code)
 
 Create a new production module (not archive code), tentatively:
 
@@ -55,7 +66,7 @@ Expected detector outputs:
 4. `detectorinfo` with full parameter provenance.
 5. optional `training` diagnostics block.
 
-### 4.2 Optional training mode (first pass)
+### 5.2 Optional training mode (first pass)
 
 Training mode will accept labeled ripple intervals as `IntervalSet` and compute:
 
@@ -65,7 +76,7 @@ Training mode will accept labeled ripple intervals as `IntervalSet` and compute:
 
 This is functionally aligned with John’s training intent while remaining `pynapple`-native.
 
-### 4.3 Ripple post-detection utilities
+### 5.3 Ripple post-detection utilities
 
 Add utilities that consume existing ripple/SWR events without re-detecting:
 
@@ -74,48 +85,48 @@ Add utilities that consume existing ripple/SWR events without re-detecting:
 
 These are intentionally downstream of detection and do not duplicate detector logic.
 
-## 5. Reuse vs. New Code
+## 6. Reuse vs. New Code
 
-### 5.1 Reuse directly from `pynapple`
+### 6.1 Reuse directly from `pynapple`
 
 1. Interval handling (`merge_close_intervals`, `drop_short_intervals`, etc.).
 2. Time restriction and alignment (`restrict`, `in_interval`).
 3. Core time series structures and metadata handling.
 
-### 5.2 New in `pynacollada`
+### 6.2 New in `pynacollada`
 
 1. John-style dual-feature SWR detection pipeline.
 2. Training diagnostics specific to SWR candidate features.
 3. Ripple event summary functions not present in `pynapple` as SWR-specific workflows.
 
-## 6. Performance Plan
+## 7. Performance Plan
 
-### 6.1 Vectorization and memory
+### 7.1 Vectorization and memory
 
 1. Use NumPy vectorized operations for filtering features and thresholding.
 2. Avoid repeated copies of large arrays.
 3. Work in-place where safe.
 
-### 6.2 JIT acceleration
+### 7.2 JIT acceleration
 
 Use `numba` (optional runtime acceleration, pure Python fallback) for:
 
 1. windowed feature candidate extraction loops,
 2. local event-screening loops if profiling shows bottlenecks.
 
-### 6.3 Filtering approach
+### 7.3 Filtering approach
 
 Implement functionally equivalent filtering behavior for the detector pipeline, but with clean Python implementations and clear parameterization.
 
-## 7. Testing and Validation Plan
+## 8. Testing and Validation Plan
 
-### 7.1 Unit tests (deterministic synthetic fixtures)
+### 8.1 Unit tests (deterministic synthetic fixtures)
 
 1. Known injected SWR-like events detected at correct times.
 2. Edge-case behavior for short/long durations, boundary intervals, close events.
 3. Training mode outputs (surface shapes, metric validity, threshold selection sanity).
 
-### 7.2 Parity-oriented tests (buzcode comparison)
+### 8.2 Parity-oriented tests (buzcode comparison)
 
 1. Compare event-level outputs on selected reference recordings.
 2. Compare at multiple levels:
@@ -124,7 +135,7 @@ Implement functionally equivalent filtering behavior for the detector pipeline, 
    3. overlap-based metrics (Jaccard/F1 over intervals),
    4. key summary statistics.
 
-### 7.3 Rigorous-but-pragmatic exit criteria
+### 8.3 Rigorous-but-pragmatic exit criteria
 
 A detector slice is accepted if:
 
@@ -138,7 +149,7 @@ If strict parity fails after repeated attempts:
 2. add regression test documenting current behavior,
 3. continue to next milestone.
 
-## 8. Milestones
+## 9. Milestones
 
 ### Milestone A: Infrastructure + API skeleton
 
@@ -170,7 +181,7 @@ If strict parity fails after repeated attempts:
 2. Document known divergences and rationale.
 3. Add usage docs/examples.
 
-## 9. Risks and Mitigations
+## 10. Risks and Mitigations
 
 1. **Risk:** strict parity impossible due primitive differences.  
    **Mitigation:** define measurable parity tolerances and divergence logs.
@@ -181,7 +192,7 @@ If strict parity fails after repeated attempts:
 3. **Risk:** unstable test fixtures.  
    **Mitigation:** deterministic seeds, fixed synthetic fixtures, tolerance-aware checks.
 
-## 10. Deliverables for First Implementation Pass
+## 11. Deliverables for First Implementation Pass
 
 1. Production SWR detector API in `pynacollada`.
 2. Optional training mode integrated into the detector API.

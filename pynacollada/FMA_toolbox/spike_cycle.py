@@ -20,7 +20,9 @@ def select_spikes(
     spikes: np.ndarray | nap.Ts,
     mode: str = "bursts",
     isi: float | None = None,
-) -> np.ndarray:
+    *,
+    return_mask: bool = False,
+) -> np.ndarray | nap.Ts:
     """
     Discriminate burst spikes vs isolated spikes using neighboring ISIs.
 
@@ -38,7 +40,9 @@ def select_spikes(
     t, _ = _coerce_spike_times(spikes)
     n = t.shape[0]
     if n == 0:
-        return np.zeros(0, dtype=bool)
+        if return_mask:
+            return np.zeros(0, dtype=bool)
+        return nap.Ts(t=np.array([], dtype=float), time_support=support)
 
     mode_use = str(mode).lower()
     if mode_use not in ("bursts", "single"):
@@ -55,7 +59,13 @@ def select_spikes(
     else:
         far = dt > float(isi)
         selected = np.concatenate(([False], far)) & np.concatenate((far, [False]))
-    return selected.astype(bool)
+    selected = selected.astype(bool)
+    if return_mask:
+        return selected
+    selected_times = t[selected]
+    if isinstance(spikes, nap.Ts):
+        return nap.Ts(t=selected_times, time_support=support)
+    return selected_times
 
 
 def _coerce_phase_series(phases: np.ndarray | nap.Tsd) -> tuple[np.ndarray, np.ndarray]:
@@ -149,7 +159,7 @@ def SelectSpikes(
     isi: float | None = None,
 ) -> np.ndarray:
     """MATLAB-compatibility alias for `select_spikes`."""
-    return select_spikes(spikes, mode=mode, isi=isi)
+    return np.asarray(select_spikes(spikes, mode=mode, isi=isi, return_mask=True), dtype=bool)
 
 
 def CountSpikesPerCycle(

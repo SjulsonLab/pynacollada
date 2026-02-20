@@ -14,14 +14,16 @@ from pynacollada import (
 def test_select_spikes_bursts_and_single_modes() -> None:
     spikes = np.array([0.000, 0.002, 0.004, 0.050, 0.090, 0.092], dtype=float)
 
-    burst_mask = select_spikes(spikes, mode="bursts", isi=0.006)
-    single_mask = select_spikes(spikes, mode="single", isi=0.020)
+    burst_times = select_spikes(spikes, mode="bursts", isi=0.006)
+    single_times = select_spikes(spikes, mode="single", isi=0.020)
+    burst_mask = select_spikes(spikes, mode="bursts", isi=0.006, return_mask=True)
     burst_mask_alias = SelectSpikes(spikes, mode="bursts", isi=0.006)
 
     expected_burst = np.array([True, True, True, False, True, True], dtype=bool)
     expected_single = np.array([False, False, False, True, False, False], dtype=bool)
+    np.testing.assert_array_equal(burst_times, spikes[expected_burst])
+    np.testing.assert_array_equal(single_times, spikes[expected_single])
     np.testing.assert_array_equal(burst_mask, expected_burst)
-    np.testing.assert_array_equal(single_mask, expected_single)
     np.testing.assert_array_equal(burst_mask, burst_mask_alias)
 
 
@@ -45,4 +47,3 @@ def test_count_spikes_per_cycle_with_phase_tsd() -> None:
     assert np.mean(count) < 1.2
     np.testing.assert_array_equal(count, count_alias)
     np.testing.assert_allclose(np.asarray(cycles.as_units("s").values), cycles_alias)
-

@@ -48,15 +48,19 @@ def test_linear_and_angular_velocity_outputs() -> None:
     lv = linear_velocity(pos)
     av = angular_velocity(pos)
 
-    assert lv.shape == (pos.shape[0], 2)
-    assert av.shape == (pos.shape[0], 2)
-    assert np.nanmedian(lv[:, 1]) > 0.95
-    assert np.nanmedian(lv[:, 1]) < 1.05
-    assert np.nanmedian(av[:, 1]) > 0.95
-    assert np.nanmedian(av[:, 1]) < 1.05
+    assert isinstance(lv, nap.Tsd)
+    assert isinstance(av, nap.Tsd)
+    assert lv.shape[0] == pos.shape[0]
+    assert av.shape[0] == pos.shape[0]
+    assert np.nanmedian(lv.values) > 0.95
+    assert np.nanmedian(lv.values) < 1.05
+    assert np.nanmedian(av.values) > 0.95
+    assert np.nanmedian(av.values) < 1.05
 
-    np.testing.assert_allclose(lv, LinearVelocity(pos))
-    np.testing.assert_allclose(av, AngularVelocity(pos))
+    lv_legacy = LinearVelocity(pos)
+    av_legacy = AngularVelocity(pos)
+    np.testing.assert_allclose(np.column_stack((lv.index.values, lv.values)), lv_legacy)
+    np.testing.assert_allclose(np.column_stack((av.index.values, av.values)), av_legacy)
 
 
 def test_distance_linear_and_circular_modes() -> None:
@@ -65,12 +69,20 @@ def test_distance_linear_and_circular_modes() -> None:
     d_linear = distance(np.column_stack((t, x)), reference=0.0)
     d_circular = distance(np.column_stack((t, x)), reference=0.0, position_type="c")
 
-    assert d_linear.shape == (5, 2)
-    assert d_circular.shape == (5, 2)
-    assert np.max(d_circular[:, 1]) < np.max(d_linear[:, 1])
+    assert isinstance(d_linear, nap.Tsd)
+    assert isinstance(d_circular, nap.Tsd)
+    assert d_linear.shape[0] == 5
+    assert d_circular.shape[0] == 5
+    assert np.max(d_circular.values) < np.max(d_linear.values)
 
-    np.testing.assert_allclose(d_linear, Distance(np.column_stack((t, x)), 0.0, type="linear"))
-    np.testing.assert_allclose(d_circular, Distance(np.column_stack((t, x)), 0.0, type="c"))
+    np.testing.assert_allclose(
+        np.column_stack((d_linear.index.values, d_linear.values)),
+        Distance(np.column_stack((t, x)), 0.0, type="linear"),
+    )
+    np.testing.assert_allclose(
+        np.column_stack((d_circular.index.values, d_circular.values)),
+        Distance(np.column_stack((t, x)), 0.0, type="c"),
+    )
 
 
 def test_quiet_and_movement_period_detection() -> None:
@@ -83,17 +95,21 @@ def test_quiet_and_movement_period_detection() -> None:
     move_periods, move_state = movement_periods(vv, velocity=5.0, duration=0.5)
     quiet_periods_out, quiet_state = quiet_periods(vv, velocity=5.0, duration=0.5)
 
+    assert isinstance(move_periods, nap.IntervalSet)
+    assert isinstance(quiet_periods_out, nap.IntervalSet)
+    assert isinstance(move_state, nap.Tsd)
+    assert isinstance(quiet_state, nap.Tsd)
     assert move_periods.shape[0] == 2
     assert quiet_periods_out.shape[0] >= 2
-    assert np.sum(move_state[:, 1]) > 0
-    assert np.sum(quiet_state[:, 1]) > 0
+    assert np.sum(move_state.values) > 0
+    assert np.sum(quiet_state.values) > 0
 
     p2, s2 = MovementPeriods(vv, velocity=5.0, duration=0.5)
     p3, s3 = QuietPeriods(vv, velocity=5.0, duration=0.5)
-    np.testing.assert_allclose(move_periods, p2)
-    np.testing.assert_allclose(move_state, s2)
-    np.testing.assert_allclose(quiet_periods_out, p3)
-    np.testing.assert_allclose(quiet_state, s3)
+    np.testing.assert_allclose(np.asarray(move_periods.values, dtype=float), p2)
+    np.testing.assert_allclose(np.column_stack((move_state.index.values, move_state.values)), s2)
+    np.testing.assert_allclose(np.asarray(quiet_periods_out.values, dtype=float), p3)
+    np.testing.assert_allclose(np.column_stack((quiet_state.index.values, quiet_state.values)), s3)
 
 
 def test_phase_and_interpolated_phase_shapes() -> None:
@@ -105,19 +121,21 @@ def test_phase_and_interpolated_phase_shapes() -> None:
     tq = np.arange(0.05, 1.95, 0.002)
     p_i, a_i, u_i = phase(samples, times=tq)
 
-    assert p.shape == samples.shape
-    assert a.shape == samples.shape
-    assert u.shape == samples.shape
-    assert p_i.shape == (tq.shape[0], 2)
-    assert a_i.shape == (tq.shape[0], 2)
-    assert u_i.shape == (tq.shape[0], 2)
-    assert np.nanmin(p[:, 1]) >= 0.0
-    assert np.nanmax(p[:, 1]) <= 2.0 * np.pi
+    assert isinstance(p, nap.Tsd)
+    assert isinstance(a, nap.Tsd)
+    assert isinstance(u, nap.Tsd)
+    assert isinstance(p_i, nap.Tsd)
+    assert isinstance(a_i, nap.Tsd)
+    assert isinstance(u_i, nap.Tsd)
+    assert p.shape[0] == samples.shape[0]
+    assert p_i.shape[0] == tq.shape[0]
+    assert np.nanmin(p.values) >= 0.0
+    assert np.nanmax(p.values) <= 2.0 * np.pi
 
     p2, a2, u2 = Phase(samples, times=tq)
-    np.testing.assert_allclose(p_i, p2)
-    np.testing.assert_allclose(a_i, a2)
-    np.testing.assert_allclose(u_i, u2)
+    np.testing.assert_allclose(np.column_stack((p_i.index.values, p_i.values)), p2)
+    np.testing.assert_allclose(np.column_stack((a_i.index.values, a_i.values)), a2)
+    np.testing.assert_allclose(np.column_stack((u_i.index.values, u_i.values)), u2)
 
 
 def test_frequency_methods_and_alias() -> None:
@@ -126,13 +144,19 @@ def test_frequency_methods_and_alias() -> None:
     f_adapt = frequency(ts, method="adaptive", bin_size=0.05, smooth=2)
     f_inv = frequency(ts, method="inverse")
 
-    assert f_fixed.shape[1] == 2
+    assert isinstance(f_fixed, nap.Tsd)
+    assert isinstance(f_adapt, nap.Tsd)
+    assert isinstance(f_inv, nap.Tsd)
     assert f_adapt.shape == f_fixed.shape
-    assert f_inv.shape == (ts.shape[0], 2)
-    assert np.nanmean(f_fixed[:, 1]) > 15.0
-    assert np.nanmean(f_fixed[:, 1]) < 25.0
+    assert f_inv.shape[0] == ts.shape[0]
+    assert np.nanmean(f_fixed.values) > 15.0
+    assert np.nanmean(f_fixed.values) < 25.0
 
-    np.testing.assert_allclose(f_fixed, Frequency(ts, "method", "fixed", "binSize", 0.05, "smooth", 2))
+    np.testing.assert_allclose(
+        np.column_stack((f_fixed.index.values, f_fixed.values)),
+        Frequency(ts, "method", "fixed", "binSize", 0.05, "smooth", 2),
+        atol=1e-12,
+    )
 
 
 def test_cv_variants_and_alias() -> None:
@@ -145,9 +169,12 @@ def test_cv_variants_and_alias() -> None:
     assert coeff_cv < 1e-6
     assert coeff_cv2 < 1e-6
     assert np.isfinite(coeff_cvo)
-    assert local_cv.size == 0
-    assert local_cvo.size == 0
-    assert local_cv2.size > 0
+    assert isinstance(local_cv, nap.Tsd)
+    assert isinstance(local_cvo, nap.Tsd)
+    assert isinstance(local_cv2, nap.Tsd)
+    assert local_cv.shape[0] == 0
+    assert local_cvo.shape[0] == 0
+    assert local_cv2.shape[0] > 0
 
     coeff_cv_alias, _ = CV(ts, "measure", "cv")
     assert abs(coeff_cv_alias - coeff_cv) < 1e-10
@@ -162,19 +189,25 @@ def test_spectrogram_and_coherence_band_helpers() -> None:
     spec[theta_idx, :] = 5.0
     spec[delta_idx, :] = 1.0
 
-    bands = spectrogram_bands(spec, freqs)
+    t = np.linspace(0.0, 7.9, t_bins)
+    bands = spectrogram_bands(spec, freqs, times=t)
     assert "ratios" in bands
+    assert isinstance(bands["theta"], nap.Tsd)
     assert bands["theta"].shape[0] == t_bins
-    assert np.nanmean(bands["ratios"]["hippocampus"]) > 4.0
+    assert np.nanmean(bands["ratios"]["hippocampus"].values) > 4.0
 
-    bands_alias = SpectrogramBands(spec, freqs)
-    np.testing.assert_allclose(bands["theta"], bands_alias["theta"])
+    bands_alias = SpectrogramBands(spec, freqs, "times", t)
+    np.testing.assert_allclose(
+        np.column_stack((bands["theta"].index.values, bands["theta"].values)),
+        np.column_stack((t, bands_alias["theta"])),
+    )
 
     coh = np.tile(np.linspace(0.0, 1.0, freqs.shape[0]).reshape(-1, 1), (1, t_bins))
-    cb = coherence_bands(coh, freqs)
+    cb = coherence_bands(coh, freqs, times=t)
+    assert isinstance(cb["theta"], nap.Tsd)
     assert cb["theta"].shape[0] == t_bins
-    cb_alias = CoherenceBands(coh, freqs)
-    np.testing.assert_allclose(cb["theta"], cb_alias["theta"])
+    cb_alias = CoherenceBands(coh, freqs, "times", t)
+    np.testing.assert_allclose(np.column_stack((t, cb["theta"].values)), np.column_stack((t, cb_alias["theta"])))
 
 
 def test_ccg_parameter_reformatting() -> None:
@@ -199,11 +232,12 @@ def test_filter_lfp_band_alias_and_shape() -> None:
     lfp = np.column_stack((t, x))
 
     filt = filter_lfp(lfp, passband="theta")
-    assert filt.shape == lfp.shape
-    assert np.std(filt[:, 1]) > 0.1
+    assert isinstance(filt, nap.Tsd)
+    assert filt.shape[0] == lfp.shape[0]
+    assert np.std(filt.values) > 0.1
 
     filt_alias = FilterLFP(lfp, "passband", "theta")
-    np.testing.assert_allclose(filt, filt_alias)
+    np.testing.assert_allclose(np.column_stack((filt.index.values, filt.values)), filt_alias)
 
 
 def test_define_zone_and_is_in_zone_intervalset_output() -> None:

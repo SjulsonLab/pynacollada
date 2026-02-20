@@ -71,6 +71,27 @@ def _as_samples(samples: np.ndarray | nap.Tsd | nap.TsdFrame) -> np.ndarray:
     return arr
 
 
+def _to_tsd_like(times: np.ndarray, values: np.ndarray) -> nap.Tsd | nap.TsdFrame:
+    t = np.asarray(times, dtype=float).reshape(-1)
+    v = np.asarray(values, dtype=float)
+    if v.ndim == 1:
+        return nap.Tsd(t=t, d=v)
+    if v.ndim == 2 and v.shape[1] == 1:
+        return nap.Tsd(t=t, d=v[:, 0])
+    if v.ndim == 2:
+        return nap.TsdFrame(t=t, d=v)
+    raise ValueError("values must be 1D or 2D.")
+
+
+def _times_or_index(n: int, times: np.ndarray | None) -> np.ndarray:
+    if times is None:
+        return np.arange(n, dtype=float)
+    t = np.asarray(times, dtype=float).reshape(-1)
+    if t.size != n:
+        raise ValueError("times must have length equal to the number of time bins.")
+    return t
+
+
 def _gaussian_smooth(x: np.ndarray, sigma: float) -> np.ndarray:
     if sigma <= 0:
         return x.copy()
@@ -178,17 +199,29 @@ def _periods_from_mask(
     return periods, state
 
 
-def linear_velocity(positions: np.ndarray | nap.TsdFrame, smooth: float = 0.0) -> np.ndarray:
+def linear_velocity(
+    positions: np.ndarray | nap.TsdFrame,
+    smooth: float = 0.0,
+    *,
+    as_array: bool = False,
+) -> nap.Tsd | np.ndarray:
     """Compute instantaneous linear velocity from position samples [t x y]."""
     arr = _as_samples(positions)
     if arr.shape[1] < 3:
         raise ValueError("positions must contain at least [t, x, y].")
     d = _differentiate(arr[:, :3], smooth=smooth)
     speed = np.linalg.norm(d[:, 1:3], axis=1)
-    return np.column_stack((arr[:, 0], speed))
+    if as_array:
+        return np.column_stack((arr[:, 0], speed))
+    return nap.Tsd(t=arr[:, 0], d=speed)
 
 
-def angular_velocity(positions: np.ndarray | nap.TsdFrame, smooth: float = 0.0) -> np.ndarray:
+def angular_velocity(
+    positions: np.ndarray | nap.TsdFrame,
+    smooth: float = 0.0,
+    *,
+    as_array: bool = False,
+) -> nap.Tsd | np.ndarray:
     """Compute instantaneous angular velocity for vector samples [t x y]."""
     arr = _as_samples(positions)
     if arr.shape[1] < 3:
@@ -200,7 +233,9 @@ def angular_velocity(positions: np.ndarray | nap.TsdFrame, smooth: float = 0.0) 
     unit_samples = np.column_stack((arr[:, 0], unit))
     d = _differentiate(unit_samples, smooth=smooth)
     omega = unit[:, 0] * d[:, 2] - unit[:, 1] * d[:, 1]
-    return np.column_stack((arr[:, 0], omega))
+    if as_array:
+        return np.column_stack((arr[:, 0], omega))
+    return nap.Tsd(t=arr[:, 0], d=omega)
 
 
 def distance(
@@ -208,7 +243,8 @@ def distance(
     reference: float | tuple[float, float] | list[float] | np.ndarray,
     *,
     position_type: str = "linear",
-) -> np.ndarray:
+    as_array: bool = False,
+) -> nap.Tsd | np.ndarray:
     """Compute instantaneous distance from positions to a fixed reference point."""
     arr = _as_samples(positions)
     ref = np.asarray(reference, dtype=float).reshape(-1)
@@ -232,30 +268,77 @@ def distance(
             out[:, 1] = np.minimum(d1, d2)
         else:
             out[:, 1] = np.abs(x - ref[0])
-        return out
+        if as_array:
+            return out
+        return nap.Tsd(t=out[:, 0], d=out[:, 1])
 
     delta = arr[:, 1:] - ref.reshape(1, -1)
     out[:, 1] = np.linalg.norm(delta, axis=1)
-    return out
+    if as_array:
+        return out
+    return nap.Tsd(t=out[:, 0], d=out[:, 1])
 
 
-def movement_periods(v: np.ndarray, velocity: float, duration: float, brief: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
+def movement_periods(
+    v: np.ndarray | nap.Tsd,
+    velocity: float,
+    duration: float,
+    brief: float = 0.0,
+    *,
+    as_array: bool = False,
+) -> tuple[nap.IntervalSet, nap.Tsd] | tuple[np.ndarray, np.ndarray]:
     """Find periods where linear velocity remains above threshold."""
     arr = _as_samples(v)
     if arr.shape[1] < 2:
         raise ValueError("v must be [t, velocity].")
-    return _periods_from_mask(arr[:, 0], arr[:, 1] > float(velocity), min_duration=float(duration), brief_gap=float(brief))
+    periods, state = _periods_from_mask(
+        arr[:, 0],
+        arr[:, 1] > float(velocity),
+        min_duration=float(duration),
+        brief_gap=float(brief),
+    )
+    if as_array:
+        return periods, state
+    intervals = nap.IntervalSet(start=periods[:, 0], end=periods[:, 1]) if periods.size else nap.IntervalSet(
+        start=np.array([], dtype=float),
+        end=np.array([], dtype=float),
+    )
+    return intervals, nap.Tsd(t=state[:, 0], d=state[:, 1].astype(np.int8))
 
 
-def quiet_periods(v: np.ndarray, velocity: float, duration: float, brief: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
+def quiet_periods(
+    v: np.ndarray | nap.Tsd,
+    velocity: float,
+    duration: float,
+    brief: float = 0.0,
+    *,
+    as_array: bool = False,
+) -> tuple[nap.IntervalSet, nap.Tsd] | tuple[np.ndarray, np.ndarray]:
     """Find periods where linear velocity remains below threshold."""
     arr = _as_samples(v)
     if arr.shape[1] < 2:
         raise ValueError("v must be [t, velocity].")
-    return _periods_from_mask(arr[:, 0], arr[:, 1] < float(velocity), min_duration=float(duration), brief_gap=float(brief))
+    periods, state = _periods_from_mask(
+        arr[:, 0],
+        arr[:, 1] < float(velocity),
+        min_duration=float(duration),
+        brief_gap=float(brief),
+    )
+    if as_array:
+        return periods, state
+    intervals = nap.IntervalSet(start=periods[:, 0], end=periods[:, 1]) if periods.size else nap.IntervalSet(
+        start=np.array([], dtype=float),
+        end=np.array([], dtype=float),
+    )
+    return intervals, nap.Tsd(t=state[:, 0], d=state[:, 1].astype(np.int8))
 
 
-def phase(samples: np.ndarray | nap.Tsd | nap.TsdFrame, times: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def phase(
+    samples: np.ndarray | nap.Tsd | nap.TsdFrame,
+    times: np.ndarray | None = None,
+    *,
+    as_array: bool = False,
+) -> tuple[nap.Tsd | nap.TsdFrame, nap.Tsd | nap.TsdFrame, nap.Tsd | nap.TsdFrame] | tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compute wrapped phase, amplitude, and unwrapped phase via Hilbert transform."""
     arr = _as_samples(samples)
     t = arr[:, 0]
@@ -267,12 +350,20 @@ def phase(samples: np.ndarray | nap.Tsd | nap.TsdFrame, times: np.ndarray | None
     unwrapped = np.unwrap(wrapped, axis=0)
 
     if times is None:
-        return np.column_stack((t, wrapped)), np.column_stack((t, amp)), np.column_stack((t, unwrapped))
+        if as_array:
+            return np.column_stack((t, wrapped)), np.column_stack((t, amp)), np.column_stack((t, unwrapped))
+        return _to_tsd_like(t, wrapped), _to_tsd_like(t, amp), _to_tsd_like(t, unwrapped)
 
     tq = np.asarray(times, dtype=float).reshape(-1)
     if tq.size == 0:
         empty = np.empty((0, x.shape[1] + 1), dtype=float)
-        return empty, empty, empty
+        if as_array:
+            return empty, empty, empty
+        return (
+            _to_tsd_like(np.array([], dtype=float), empty[:, 1:] if empty.shape[1] > 1 else np.array([], dtype=float)),
+            _to_tsd_like(np.array([], dtype=float), empty[:, 1:] if empty.shape[1] > 1 else np.array([], dtype=float)),
+            _to_tsd_like(np.array([], dtype=float), empty[:, 1:] if empty.shape[1] > 1 else np.array([], dtype=float)),
+        )
 
     # Circular interpolation for wrapped phase through the complex plane.
     z = np.exp(1j * wrapped)
@@ -281,7 +372,9 @@ def phase(samples: np.ndarray | nap.Tsd | nap.TsdFrame, times: np.ndarray | None
     wrapped_q = np.mod(np.arctan2(zi, zr), 2.0 * np.pi)
     amp_q = _interpolate_columns(t, amp, tq)
     unwrapped_q = _interpolate_columns(t, unwrapped, tq)
-    return np.column_stack((tq, wrapped_q)), np.column_stack((tq, amp_q)), np.column_stack((tq, unwrapped_q))
+    if as_array:
+        return np.column_stack((tq, wrapped_q)), np.column_stack((tq, amp_q)), np.column_stack((tq, unwrapped_q))
+    return _to_tsd_like(tq, wrapped_q), _to_tsd_like(tq, amp_q), _to_tsd_like(tq, unwrapped_q)
 
 
 def frequency(
@@ -291,18 +384,21 @@ def frequency(
     limits: tuple[float, float] | list[float] | np.ndarray | None = None,
     bin_size: float = 0.05,
     smooth: float = 2.0,
-) -> np.ndarray:
+    as_array: bool = False,
+) -> nap.Tsd | np.ndarray:
     """Compute instantaneous point-process frequency by kernel or ISI methods."""
     ts = np.asarray(_as_timestamps(timestamps), dtype=float).reshape(-1)
     if ts.size == 0:
-        return np.empty((0, 2), dtype=float)
+        empty = np.empty((0, 2), dtype=float)
+        return empty if as_array else nap.Tsd(t=np.array([], dtype=float), d=np.array([], dtype=float))
     if np.any(np.diff(ts) < 0):
         ts = np.sort(ts)
 
     method_use = str(method).lower()
     if method_use in ("inverse", "iisi"):
         if ts.size <= 2:
-            return np.column_stack((ts, np.zeros_like(ts)))
+            out = np.column_stack((ts, np.zeros_like(ts)))
+            return out if as_array else nap.Tsd(t=out[:, 0], d=out[:, 1])
         ds = np.diff(ts)
         ds[ds <= 0] = np.nan
         mid = ts[:-1] + 0.5 * np.diff(ts)
@@ -311,7 +407,8 @@ def frequency(
         interp_f = np.interp(interp_t, mid, iisi)
         out_t = np.r_[ts[0], interp_t, ts[-1]]
         out_f = np.r_[0.0, interp_f, 0.0]
-        return np.column_stack((out_t, out_f))
+        out = np.column_stack((out_t, out_f))
+        return out if as_array else nap.Tsd(t=out[:, 0], d=out[:, 1])
 
     if bin_size <= 0:
         raise ValueError("bin_size must be positive.")
@@ -327,19 +424,22 @@ def frequency(
 
     t = np.arange(lo, hi + 0.5 * bin_size, bin_size, dtype=float)
     if t.size < 2:
-        return np.empty((0, 2), dtype=float)
+        empty = np.empty((0, 2), dtype=float)
+        return empty if as_array else nap.Tsd(t=np.array([], dtype=float), d=np.array([], dtype=float))
 
     counts = np.histogram(ts, bins=np.r_[t - 0.5 * bin_size, t[-1] + 0.5 * bin_size])[0].astype(float)
     pilot = _gaussian_smooth(counts / bin_size, smooth)
 
     if method_use == "fixed":
-        return np.column_stack((t, pilot))
+        out = np.column_stack((t, pilot))
+        return out if as_array else nap.Tsd(t=out[:, 0], d=out[:, 1])
     if method_use != "adaptive":
         raise ValueError("method must be one of {'fixed', 'adaptive', 'inverse', 'iisi'}.")
 
     nz = pilot[pilot > 0]
     if nz.size == 0:
-        return np.column_stack((t, pilot))
+        out = np.column_stack((t, pilot))
+        return out if as_array else nap.Tsd(t=out[:, 0], d=out[:, 1])
     mu = float(np.exp(np.mean(np.log(nz))))
     lam = np.sqrt(np.maximum(pilot / max(mu, _EPS), _EPS))
     sigma_sec = (smooth * bin_size) / np.maximum(lam, _EPS)
@@ -364,7 +464,8 @@ def frequency(
         center = t.size + i
         seg = padded[center - half : center + half + 1]
         adaptive[i] = float(np.sum(seg * kernel) / bin_size)
-    return np.column_stack((t, adaptive))
+    out = np.column_stack((t, adaptive))
+    return out if as_array else nap.Tsd(t=out[:, 0], d=out[:, 1])
 
 
 def cv(
@@ -375,11 +476,13 @@ def cv(
     method: str = "fixed",
     bin_size: float = 0.001,
     smooth: float = 25.0,
-) -> tuple[float, np.ndarray]:
+    local_as_tsd: bool = True,
+) -> tuple[float, nap.Tsd | np.ndarray]:
     """Compute CV, CV2, or operational-time CV for a point process."""
     ts = _as_timestamps(timestamps)
     if ts.size < 2:
-        return float(np.nan), np.array([], dtype=float)
+        empty = np.array([], dtype=float)
+        return float(np.nan), (nap.Tsd(t=empty, d=empty) if local_as_tsd else empty)
     if np.any(np.diff(ts) < 0):
         ts = np.sort(ts)
 
@@ -398,29 +501,38 @@ def cv(
     if measure_use == "cv":
         dt = _ndiff(ts, order_use)
         if dt.size == 0 or np.mean(dt) <= 0:
-            return float(np.nan), np.array([], dtype=float)
-        return float(np.std(dt, ddof=1) / np.mean(dt)), np.array([], dtype=float)
+            empty = np.array([], dtype=float)
+            return float(np.nan), (nap.Tsd(t=empty, d=empty) if local_as_tsd else empty)
+        empty = np.array([], dtype=float)
+        return float(np.std(dt, ddof=1) / np.mean(dt)), (nap.Tsd(t=empty, d=empty) if local_as_tsd else empty)
 
     if measure_use == "cvo":
-        f = frequency(ts, method=method, bin_size=bin_size, smooth=smooth)
+        f = frequency(ts, method=method, bin_size=bin_size, smooth=smooth, as_array=True)
         if f.size == 0:
-            return float(np.nan), np.array([], dtype=float)
+            empty = np.array([], dtype=float)
+            return float(np.nan), (nap.Tsd(t=empty, d=empty) if local_as_tsd else empty)
         operational = np.cumsum(f[:, 1]) * bin_size
         operational_interp = np.interp(ts, f[:, 0], operational)
         operational_interp = operational_interp + ts[0] - operational_interp[0]
         dto = _ndiff(operational_interp, order_use)
         if dto.size == 0 or np.mean(dto) <= 0:
-            return float(np.nan), np.array([], dtype=float)
-        return float(np.std(dto, ddof=1) / np.mean(dto)), np.array([], dtype=float)
+            empty = np.array([], dtype=float)
+            return float(np.nan), (nap.Tsd(t=empty, d=empty) if local_as_tsd else empty)
+        empty = np.array([], dtype=float)
+        return float(np.std(dto, ddof=1) / np.mean(dto)), (nap.Tsd(t=empty, d=empty) if local_as_tsd else empty)
 
     if measure_use == "cv2":
         dt = _ndiff(ts, order_use)
         if dt.size < 2:
-            return float(np.nan), np.array([], dtype=float)
+            empty = np.array([], dtype=float)
+            return float(np.nan), (nap.Tsd(t=empty, d=empty) if local_as_tsd else empty)
         dt1 = dt[:-1]
         dt2 = dt[1:]
         x = dt1 / np.maximum(dt2, _EPS)
         local = 2.0 * np.abs(x - 1.0) / np.maximum(x + 1.0, _EPS)
+        if local_as_tsd:
+            t_local = ts[order_use + 1 : order_use + 1 + local.shape[0]]
+            return float(np.mean(local)), nap.Tsd(t=t_local, d=local)
         return float(np.mean(local)), local
 
     raise ValueError("measure must be one of {'cv', 'cvo', 'cv2'}.")
@@ -434,14 +546,15 @@ def filter_lfp(
     ripple: float = 20.0,
     nyquist: float | None = None,
     filter_type: str = "cheby2",
-) -> np.ndarray:
+    as_array: bool = False,
+) -> nap.Tsd | nap.TsdFrame | np.ndarray:
     """Filter LFP samples [t, v1, v2, ...] with Cheby2 or FIR filtering."""
     arr = _as_samples(lfp)
     t = arr[:, 0]
     x = arr[:, 1:]
 
     if x.size == 0:
-        return arr.copy()
+        return arr.copy() if as_array else _to_tsd_like(arr[:, 0], arr[:, 1:])
 
     if nyquist is None:
         if t.shape[0] < 2:
@@ -479,13 +592,17 @@ def filter_lfp(
             b = firwin(taps, [low_n, high_n], pass_zero="bandpass")
         y = lfilter(b, [1.0], x, axis=0)
 
-    return np.column_stack((t, y))
+    out = np.column_stack((t, y))
+    if as_array:
+        return out
+    return _to_tsd_like(out[:, 0], out[:, 1:])
 
 
 def spectrogram_bands(
     spectrogram: np.ndarray,
     frequencies: np.ndarray,
     *,
+    times: np.ndarray | None = None,
     smooth: float = 2.0,
     delta: tuple[float, float] = (0.0, 4.0),
     theta: tuple[float, float] = (7.0, 10.0),
@@ -495,6 +612,7 @@ def spectrogram_bands(
     ripples: tuple[float, float] = (100.0, 250.0),
     broad_low: tuple[float, float] = (1.0, 12.0),
     amy_gamma: tuple[float, float] = (45.0, 65.0),
+    as_array: bool = False,
 ) -> dict[str, Any]:
     """Compute power trajectories in physiological bands from a spectrogram."""
     s = np.asarray(spectrogram, dtype=float)
@@ -552,13 +670,37 @@ def spectrogram_bands(
     out["ratio1"] = ratio_cortex
     out["ratio2"] = ratio_cortex[:, 1]
     out["ratio3"] = ratio_amy
-    return out
+    if as_array:
+        return out
+
+    t = _times_or_index(s.shape[1], times)
+    out_ts: dict[str, Any] = {
+        "theta": nap.Tsd(t=t, d=out["theta"]),
+        "delta": nap.Tsd(t=t, d=out["delta"]),
+        "spindles": nap.Tsd(t=t, d=out["spindles"]),
+        "lowGamma": nap.Tsd(t=t, d=out["lowGamma"]),
+        "highGamma": nap.Tsd(t=t, d=out["highGamma"]),
+        "ripples": nap.Tsd(t=t, d=out["ripples"]),
+        "broadLow": nap.Tsd(t=t, d=out["broadLow"]),
+        "amyGamma": nap.Tsd(t=t, d=out["amyGamma"]),
+        "ratios": {
+            "hippocampus": nap.Tsd(t=t, d=out["ratios"]["hippocampus"]),
+            "cortex": nap.TsdFrame(t=t, d=out["ratios"]["cortex"]),
+            "amygdala": nap.Tsd(t=t, d=out["ratios"]["amygdala"]),
+        },
+        "ratio": nap.Tsd(t=t, d=out["ratio"]),
+        "ratio1": nap.TsdFrame(t=t, d=out["ratio1"]),
+        "ratio2": nap.Tsd(t=t, d=out["ratio2"]),
+        "ratio3": nap.Tsd(t=t, d=out["ratio3"]),
+    }
+    return out_ts
 
 
 def coherence_bands(
     coherogram: np.ndarray,
     frequencies: np.ndarray,
     *,
+    times: np.ndarray | None = None,
     custom: tuple[float, float] = (0.0, 250.0),
     delta: tuple[float, float] = (0.0, 4.0),
     theta: tuple[float, float] = (7.0, 10.0),
@@ -566,7 +708,8 @@ def coherence_bands(
     low_gamma: tuple[float, float] = (30.0, 80.0),
     high_gamma: tuple[float, float] = (80.0, 120.0),
     ripples: tuple[float, float] = (100.0, 250.0),
-) -> dict[str, np.ndarray]:
+    as_array: bool = False,
+) -> dict[str, np.ndarray | nap.Tsd]:
     """Compute coherence trajectories in physiological bands from a coherogram."""
     c = np.asarray(coherogram, dtype=float)
     f = np.asarray(frequencies, dtype=float).reshape(-1)
@@ -582,7 +725,7 @@ def coherence_bands(
             return np.full(c.shape[1], np.nan, dtype=float)
         return np.nanmean(c[idx, :], axis=0)
 
-    return {
+    out = {
         "custom": _band(custom),
         "theta": _band(theta),
         "delta": _band(delta),
@@ -591,6 +734,10 @@ def coherence_bands(
         "highGamma": _band(high_gamma),
         "ripples": _band(ripples),
     }
+    if as_array:
+        return out
+    t = _times_or_index(c.shape[1], times)
+    return {k: nap.Tsd(t=t, d=np.asarray(v, dtype=float)) for k, v in out.items()}
 
 
 def ccg_parameters(*series_and_groups: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -910,12 +1057,12 @@ def threshold_spikes(
 
 def AngularVelocity(X: np.ndarray | nap.TsdFrame, smooth: float = 0.0) -> np.ndarray:
     """MATLAB-style alias for :func:`angular_velocity`."""
-    return angular_velocity(X, smooth=smooth)
+    return np.asarray(angular_velocity(X, smooth=smooth, as_array=True), dtype=float)
 
 
 def LinearVelocity(X: np.ndarray | nap.TsdFrame, smooth: float = 0.0) -> np.ndarray:
     """MATLAB-style alias for :func:`linear_velocity`."""
-    return linear_velocity(X, smooth=smooth)
+    return np.asarray(linear_velocity(X, smooth=smooth, as_array=True), dtype=float)
 
 
 def Distance(positions: np.ndarray | nap.TsdFrame, reference: Any, *args: Any, **kwargs: Any) -> np.ndarray:
@@ -925,22 +1072,25 @@ def Distance(positions: np.ndarray | nap.TsdFrame, reference: Any, *args: Any, *
     if options:
         unexpected = ", ".join(sorted(options.keys()))
         raise TypeError(f"Unexpected options: {unexpected}")
-    return distance(positions, reference, position_type=position_type)
+    return np.asarray(distance(positions, reference, position_type=position_type, as_array=True), dtype=float)
 
 
 def MovementPeriods(v: np.ndarray, velocity: float, duration: float, brief: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
     """MATLAB-style alias for :func:`movement_periods`."""
-    return movement_periods(v, velocity=velocity, duration=duration, brief=brief)
+    periods, state = movement_periods(v, velocity=velocity, duration=duration, brief=brief, as_array=True)
+    return np.asarray(periods, dtype=float), np.asarray(state, dtype=float)
 
 
 def QuietPeriods(v: np.ndarray, velocity: float, duration: float, brief: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
     """MATLAB-style alias for :func:`quiet_periods`."""
-    return quiet_periods(v, velocity=velocity, duration=duration, brief=brief)
+    periods, state = quiet_periods(v, velocity=velocity, duration=duration, brief=brief, as_array=True)
+    return np.asarray(periods, dtype=float), np.asarray(state, dtype=float)
 
 
 def Phase(samples: np.ndarray | nap.Tsd | nap.TsdFrame, times: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """MATLAB-style alias for :func:`phase`."""
-    return phase(samples, times=times)
+    wrapped, amp, unwrapped = phase(samples, times=times, as_array=True)
+    return np.asarray(wrapped, dtype=float), np.asarray(amp, dtype=float), np.asarray(unwrapped, dtype=float)
 
 
 def Frequency(timestamps: np.ndarray | nap.Ts, *args: Any, **kwargs: Any) -> np.ndarray:
@@ -956,7 +1106,7 @@ def Frequency(timestamps: np.ndarray | nap.Ts, *args: Any, **kwargs: Any) -> np.
     if options:
         unexpected = ", ".join(sorted(options.keys()))
         raise TypeError(f"Unexpected options: {unexpected}")
-    return frequency(timestamps, **mapped)
+    return np.asarray(frequency(timestamps, as_array=True, **mapped), dtype=float)
 
 
 def CV(timestamps: np.ndarray | nap.Ts, *args: Any, **kwargs: Any) -> tuple[float, np.ndarray]:
@@ -972,7 +1122,8 @@ def CV(timestamps: np.ndarray | nap.Ts, *args: Any, **kwargs: Any) -> tuple[floa
     if options:
         unexpected = ", ".join(sorted(options.keys()))
         raise TypeError(f"Unexpected options: {unexpected}")
-    return cv(timestamps, **mapped)
+    coeff, local = cv(timestamps, local_as_tsd=False, **mapped)
+    return coeff, np.asarray(local, dtype=float)
 
 
 def FilterLFP(lfp: np.ndarray | nap.Tsd | nap.TsdFrame, *args: Any, **kwargs: Any) -> np.ndarray:
@@ -988,13 +1139,14 @@ def FilterLFP(lfp: np.ndarray | nap.Tsd | nap.TsdFrame, *args: Any, **kwargs: An
     if options:
         unexpected = ", ".join(sorted(options.keys()))
         raise TypeError(f"Unexpected options: {unexpected}")
-    return filter_lfp(lfp, **mapped)
+    return np.asarray(filter_lfp(lfp, as_array=True, **mapped), dtype=float)
 
 
 def SpectrogramBands(spectrogram: np.ndarray, frequencies: np.ndarray, *args: Any, **kwargs: Any) -> dict[str, Any]:
     """MATLAB-style alias for :func:`spectrogram_bands`."""
     options = _collect_options(args, kwargs)
     mapped = {
+        "times": options.pop("times", None),
         "smooth": float(options.pop("smooth", 2.0)),
         "delta": tuple(options.pop("delta", (0.0, 4.0))),
         "theta": tuple(options.pop("theta", (7.0, 10.0))),
@@ -1008,13 +1160,14 @@ def SpectrogramBands(spectrogram: np.ndarray, frequencies: np.ndarray, *args: An
     if options:
         unexpected = ", ".join(sorted(options.keys()))
         raise TypeError(f"Unexpected options: {unexpected}")
-    return spectrogram_bands(spectrogram, frequencies, **mapped)
+    return spectrogram_bands(spectrogram, frequencies, as_array=True, **mapped)
 
 
 def CoherenceBands(coherogram: np.ndarray, frequencies: np.ndarray, *args: Any, **kwargs: Any) -> dict[str, np.ndarray]:
     """MATLAB-style alias for :func:`coherence_bands`."""
     options = _collect_options(args, kwargs)
     mapped = {
+        "times": options.pop("times", None),
         "custom": tuple(options.pop("custom", (0.0, 250.0))),
         "delta": tuple(options.pop("delta", (0.0, 4.0))),
         "theta": tuple(options.pop("theta", (7.0, 10.0))),
@@ -1027,7 +1180,7 @@ def CoherenceBands(coherogram: np.ndarray, frequencies: np.ndarray, *args: Any, 
     if options:
         unexpected = ", ".join(sorted(options.keys()))
         raise TypeError(f"Unexpected options: {unexpected}")
-    return coherence_bands(coherogram, frequencies, **mapped)
+    return coherence_bands(coherogram, frequencies, as_array=True, **mapped)
 
 
 def CCGParameters(*series_and_groups: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

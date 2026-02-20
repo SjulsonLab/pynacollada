@@ -9,6 +9,12 @@ This document focuses on **analysis functionality** from FMAToolbox that is not 
 
 It is intentionally not a line-by-line porting checklist. The goal is functional coverage with `pynapple`-native objects and workflows.
 
+API policy used for this port:
+
+1. snake_case APIs are `pynapple`-first and return `pynapple` objects by default.
+2. FMAT CamelCase wrappers exist for compatibility/parity testing, but are not the design center.
+3. Array-mask/index outputs are secondary and opt-in where needed for parity/debugging.
+
 Archive policy for this project:
 
 1. `pynacollada/archive/` code is treated as valid baseline implementation.
