@@ -87,10 +87,16 @@ from .radial_maze import (
     radial_maze_turns,
 )
 from .io import (
+    IsEvents,
     LoadBinary,
     LoadBinaryChunk,
+    LoadEvents,
+    SaveEvents,
+    is_events,
     load_binary,
+    load_events,
     load_binary_chunk,
+    save_events,
 )
 
 __all__ = [
@@ -166,4 +172,10 @@ __all__ = [
     "load_binary_chunk",
     "LoadBinary",
     "LoadBinaryChunk",
+    "is_events",
+    "load_events",
+    "save_events",
+    "IsEvents",
+    "LoadEvents",
+    "SaveEvents",
 ]

@@ -93,6 +93,8 @@ Archive policy for this project:
    2. `RadialMazeTurns` turn-angle distributions (`good`/`preferred`/`non-preferred`)
 16. FMAT-style binary IO helpers:
    1. `LoadBinary` and `LoadBinaryChunk` APIs for multiplexed binary files
+17. FMAT-style event IO helpers:
+   1. `LoadEvents` and `SaveEvents`
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -131,7 +133,7 @@ High-value missing functions/classes of functionality:
 ## D. FMAT data/session abstractions not directly mapped
 
 FMAT’s `Data` and `IO` layers include session-global state and specific loader conventions (`SetCurrentSession`, `GetSpikes`, `LoadBinaryChunk`, etc.).  
-`pynapple` already has modern loaders; `pynacollada` now provides FMAT-compatible binary readers, but most session-global convenience wrappers are still absent.
+`pynapple` already has modern loaders; `pynacollada` now provides FMAT-compatible binary and event readers/writers, but most session-global convenience wrappers are still absent.
 
 ## E. Plot/database ecosystems (likely non-goals)
 
