@@ -1,15 +1,19 @@
 """pynacollada public API."""
 
 from .swr import (
+    FMATRippleDetectorParams,
+    FindRipples,
     SWRDetectorParams,
     bandpass_filter,
     compute_ripple_feature_stats,
     compute_ripple_event_stats,
     compute_ripple_spike_coupling,
     detect_oscillatory_events,
+    detect_ripples_fmat,
     detect_ripples_nss,
     detect_swr,
     detect_swr_jlong,
+    find_ripples_fmat,
     ripple_feature_stats,
     ripple_spike_coupling,
     ripple_stats,
@@ -29,15 +33,19 @@ from .circular_stats import (
 )
 
 __all__ = [
+    "FMATRippleDetectorParams",
+    "FindRipples",
     "SWRDetectorParams",
     "bandpass_filter",
     "compute_ripple_feature_stats",
     "compute_ripple_spike_coupling",
     "detect_oscillatory_events",
+    "detect_ripples_fmat",
     "detect_ripples_nss",
     "detect_swr_jlong",
     "detect_swr",
     "compute_ripple_event_stats",
+    "find_ripples_fmat",
     "ripple_feature_stats",
     "ripple_spike_coupling",
     "ripple_stats",

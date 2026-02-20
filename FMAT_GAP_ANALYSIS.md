@@ -42,14 +42,18 @@ Archive policy for this project:
    1. dual-feature pipeline (sharp-wave difference + ripple power)
    2. candidate clustering and local screening
    3. optional training diagnostics (precision/recall surfaces)
-2. Ripple post-detection event statistics:
+2. FMAT/buzcode-style NSS ripple detector mode:
+   1. `FindRipples`-like low/high NSS threshold workflow
+   2. merge + duration gating with buzcode-style output schema
+   3. optional ripple-band noise-channel and EMG-based exclusion
+3. Ripple post-detection event statistics:
    1. per-event duration/amplitude/rms/dominant-frequency summaries
    2. optional pooled spike-count summaries
-3. FMAT/buzcode-style ripple descriptive maps/stats:
+4. FMAT/buzcode-style ripple descriptive maps/stats:
    1. instantaneous ripple/frequency/phase/amplitude maps aligned to ripple peaks
    2. peak amplitude/frequency and duration outputs
    3. ripple peak autocorrelogram and pairwise summary correlations
-4. Ripple spike-coupling summaries:
+5. Ripple spike-coupling summaries:
    1. per-unit ripple participation probability
    2. in-ripple vs out-of-ripple firing-rate modulation
    3. peri-ripple firing-rate profiles
@@ -66,10 +70,8 @@ FMAT references:
 
 What remains missing after current SWR detector:
 
-1. canonical ripple detector mode that mirrors FMAT-style NSS threshold workflow (separate from John detector),
-2. richer ripple quality metrics (band-specific energy ratios, asymmetry, cycle-level metrics),
-3. artifact/noise rejection utilities beyond current baseline summaries,
-4. standardized ripple-centric outputs suitable for downstream population analyses.
+1. richer ripple quality metrics (band-specific energy ratios, asymmetry, cycle-level metrics),
+2. standardized ripple-centric outputs suitable for downstream population analyses.
 
 ## B. FMAT `General` analytics not fully represented
 

@@ -4,15 +4,19 @@ import numpy as np
 import pynapple as nap
 
 from pynacollada import (
+    FMATRippleDetectorParams,
+    FindRipples,
     SWRDetectorParams,
     bandpass_filter,
     compute_ripple_feature_stats,
     detect_oscillatory_events,
+    detect_ripples_fmat,
     detect_ripples_nss,
     compute_ripple_event_stats,
     compute_ripple_spike_coupling,
     detect_swr,
     detect_swr_jlong,
+    find_ripples_fmat,
     ripple_feature_stats,
     ripple_spike_coupling,
     ripple_stats,
@@ -151,6 +155,78 @@ def test_archive_backed_nss_detection_api() -> None:
 
     np.testing.assert_allclose(ep1.as_units("s").values, ep2.as_units("s").values)
     np.testing.assert_allclose(peaks1.as_units("s").index.values, peaks2.as_units("s").index.values)
+
+
+def test_find_ripples_fmat_detects_synthetic_events_and_aliases() -> None:
+    lfp, truth_peaks = _make_synthetic_lfp(duration_s=15.0, n_channels=3)
+    lfp_single = lfp[:, 0]
+    params = FMATRippleDetectorParams(
+        thresholds=(1.0, 2.2),
+        durations_ms=(20.0, 150.0),
+        min_duration_ms=8.0,
+        passband=(100.0, 250.0),
+    )
+
+    out = find_ripples_fmat(lfp_single, epoch=lfp.time_support, params=params)
+    out_alias1 = detect_ripples_fmat(lfp_single, epoch=lfp.time_support, params=params)
+    out_alias2 = FindRipples(lfp_single, epoch=lfp.time_support, params=params)
+
+    assert out["timestamps"].ndim == 2
+    assert out["timestamps"].shape[1] == 2
+    assert out["timestamps"].shape[0] >= 2
+    assert out["detectorName"] == "find_ripples_fmat"
+    assert out["noise"]["times"].shape[1] == 2
+
+    match_count = 0
+    for t0 in truth_peaks:
+        if np.any((out["timestamps"][:, 0] <= t0) & (out["timestamps"][:, 1] >= t0)):
+            match_count += 1
+    assert match_count >= 2
+
+    np.testing.assert_allclose(out["timestamps"], out_alias1["timestamps"])
+    np.testing.assert_allclose(out["timestamps"], out_alias2["timestamps"])
+
+
+def test_find_ripples_fmat_noise_channel_rejection() -> None:
+    fs = 1250.0
+    t = np.arange(0.0, 16.0, 1.0 / fs, dtype=float)
+    rng = np.random.default_rng(0)
+
+    ripple_times = (5.0, 12.0)
+    lfp_signal = 0.12 * rng.standard_normal(t.size)
+    noise_signal = 0.12 * rng.standard_normal(t.size)
+
+    for t0 in ripple_times:
+        dt = t - t0
+        ripple_env = np.exp(-0.5 * (dt / 0.015) ** 2)
+        ripple = np.sin(2.0 * np.pi * 150.0 * dt) * ripple_env
+        lfp_signal += 3.0 * ripple
+
+    # Inject strong ripple-like artifact only on the noise channel at 12 s.
+    dt_bad = t - 12.0
+    artifact = np.sin(2.0 * np.pi * 150.0 * dt_bad) * np.exp(-0.5 * (dt_bad / 0.012) ** 2)
+    noise_signal += 6.0 * artifact
+
+    support = nap.IntervalSet(start=t[0], end=t[-1])
+    lfp = nap.Tsd(t=t, d=lfp_signal, time_support=support)
+    noise_lfp = nap.Tsd(t=t, d=noise_signal, time_support=support)
+
+    params = FMATRippleDetectorParams(
+        thresholds=(0.8, 2.0),
+        durations_ms=(20.0, 180.0),
+        min_duration_ms=8.0,
+        passband=(100.0, 250.0),
+    )
+    out_no_noise = find_ripples_fmat(lfp, epoch=support, params=params)
+    out_with_noise = find_ripples_fmat(lfp, epoch=support, params=params, noise_lfp=noise_lfp)
+
+    assert out_with_noise["timestamps"].shape[0] <= out_no_noise["timestamps"].shape[0]
+    assert out_with_noise["noise"]["times"].shape[0] >= 1
+
+    has_12s_without_noise = np.any((out_no_noise["timestamps"][:, 0] <= 12.0) & (out_no_noise["timestamps"][:, 1] >= 12.0))
+    has_12s_with_noise = np.any((out_with_noise["timestamps"][:, 0] <= 12.0) & (out_with_noise["timestamps"][:, 1] >= 12.0))
+    assert has_12s_without_noise
+    assert not has_12s_with_noise
 
 
 def test_compute_ripple_feature_stats_maps_data_stats() -> None:

@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pynapple as nap
-from scipy.signal import hilbert, lfilter, savgol_filter, welch
+from scipy.signal import filtfilt, hilbert, lfilter, savgol_filter, welch
 from scipy.stats import pearsonr
 from sklearn.cluster import KMeans
 
@@ -52,6 +52,18 @@ class SWRDetectorParams:
     min_dur_sw_s: float = 0.02
     max_dur_sw_s: float = 0.50
     min_dur_rp_s: float = 0.025
+
+
+@dataclass(frozen=True)
+class FMATRippleDetectorParams:
+    """Parameters for FMAT/buzcode-style NSS ripple detection."""
+
+    thresholds: tuple[float, float] = (2.0, 5.0)
+    durations_ms: tuple[float, float] = (30.0, 100.0)
+    min_duration_ms: float = 20.0
+    passband: tuple[float, float] = (130.0, 200.0)
+    smooth_window_samples: int = 11
+    filter_order: int = 3
 
 
 def _gaussian_lowpass_kernel(fc: float, fs: float, support_sd: float = 6.0) -> np.ndarray:
@@ -195,6 +207,45 @@ def _in_intervals(times: np.ndarray, intervals: np.ndarray) -> np.ndarray:
     if np.any(valid):
         mask[valid] = times[valid] <= ends[idx[valid]]
     return mask
+
+
+def _safe_moving_average(values: np.ndarray, window_samples: int) -> np.ndarray:
+    """Moving-average smoothing with filtfilt fallback for short vectors."""
+    w = int(max(3, window_samples))
+    if w % 2 == 0:
+        w += 1
+    kernel = np.ones(w, dtype=float) / float(w)
+    if values.shape[0] <= max(3 * (w - 1), w + 1):
+        return np.convolve(values, kernel, mode="same")
+    return filtfilt(kernel, [1.0], values)
+
+
+def _threshold_segments(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Convert boolean mask into inclusive [start_idx, stop_idx] sample segments."""
+    m = np.asarray(mask, dtype=bool).reshape(-1)
+    if m.size == 0 or not np.any(m):
+        return np.array([], dtype=np.int64), np.array([], dtype=np.int64)
+    starts = np.flatnonzero(~m[:-1] & m[1:]) + 1
+    stops = np.flatnonzero(m[:-1] & ~m[1:])
+    if m[0]:
+        starts = np.insert(starts, 0, 0)
+    if m[-1]:
+        stops = np.append(stops, m.size - 1)
+    return starts.astype(np.int64), stops.astype(np.int64)
+
+
+def _merge_segments(starts: np.ndarray, stops: np.ndarray, min_gap_samples: int) -> tuple[np.ndarray, np.ndarray]:
+    if starts.size == 0:
+        return starts.astype(np.int64), stops.astype(np.int64)
+    merged_starts = [int(starts[0])]
+    merged_stops = [int(stops[0])]
+    for start_i, stop_i in zip(starts[1:], stops[1:]):
+        if int(start_i) - int(merged_stops[-1]) < int(min_gap_samples):
+            merged_stops[-1] = int(stop_i)
+        else:
+            merged_starts.append(int(start_i))
+            merged_stops.append(int(stop_i))
+    return np.asarray(merged_starts, dtype=np.int64), np.asarray(merged_stops, dtype=np.int64)
 
 
 def _precision_recall(truth: np.ndarray, pred: np.ndarray) -> tuple[float, float, float]:
@@ -632,6 +683,288 @@ def detect_swr_jlong(
         centers=centers,
     )
     return out
+
+
+def _empty_find_ripples_output(
+    epoch: nap.IntervalSet,
+    params: FMATRippleDetectorParams,
+    *,
+    stdev: float | None = None,
+) -> dict[str, Any]:
+    empty_ep = nap.IntervalSet(start=np.array([], dtype=float), end=np.array([], dtype=float))
+    return {
+        "events": empty_ep,
+        "peaks_tsd": nap.Tsd(t=np.array([], dtype=float), d=np.array([], dtype=float), time_support=epoch),
+        "timestamps": np.empty((0, 2), dtype=float),
+        "peaks": np.array([], dtype=float),
+        "peakNormedPower": np.array([], dtype=float),
+        "stdev": float(np.nan if stdev is None else stdev),
+        "noise": {
+            "times": np.empty((0, 2), dtype=float),
+            "peaks": np.array([], dtype=float),
+            "peakNormedPower": np.array([], dtype=float),
+        },
+        "nss": nap.Tsd(t=np.array([], dtype=float), d=np.array([], dtype=float), time_support=epoch),
+        "detectorName": "find_ripples_fmat",
+        "detectorinfo": {
+            "detectorname": "find_ripples_fmat",
+            "detectiondate": np.datetime64("today").astype(str),
+            "detectionintervals": np.asarray(epoch.as_units("s").values, dtype=float),
+            "detectionparms": params.__dict__.copy(),
+        },
+    }
+
+
+def _compute_nss(
+    lfp: nap.Tsd,
+    *,
+    passband: tuple[float, float],
+    fs: float,
+    filter_order: int,
+    smooth_window_samples: int,
+    baseline_mask: np.ndarray | None = None,
+    fixed_std: float | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    lfp_s = lfp.as_units("s")
+    times = np.asarray(lfp_s.index.values, dtype=float)
+    filtered = _archive_bandpass_filter(lfp, passband[0], passband[1], fs, order=filter_order)
+    filtered_values = np.asarray(filtered.values, dtype=float)
+    squared = filtered_values**2
+    smoothed = _safe_moving_average(squared, smooth_window_samples)
+
+    if baseline_mask is not None and baseline_mask.shape[0] == smoothed.shape[0] and np.any(baseline_mask):
+        baseline = smoothed[baseline_mask]
+    else:
+        baseline = smoothed
+
+    mean_baseline = float(np.mean(baseline))
+    std_baseline = float(np.std(baseline))
+    if fixed_std is not None:
+        std_baseline = float(fixed_std)
+    std_baseline = max(std_baseline, _EPS)
+    nss = (smoothed - mean_baseline) / std_baseline
+    return times, filtered_values, nss, std_baseline
+
+
+def find_ripples_fmat(
+    lfp: nap.Tsd,
+    epoch: nap.IntervalSet | None = None,
+    *,
+    params: FMATRippleDetectorParams = FMATRippleDetectorParams(),
+    restrict: nap.IntervalSet | None = None,
+    stdev: float | None = None,
+    noise_lfp: nap.Tsd | None = None,
+    emg: nap.Tsd | None = None,
+    emg_threshold: float | None = None,
+) -> dict[str, Any]:
+    """
+    FMAT/buzcode-style ripple detection using normalized squared signal thresholding.
+
+    This mode is complementary to `detect_swr_jlong` and is useful when a classic
+    NSS threshold workflow (FindRipples-like) is preferred.
+    """
+    if not isinstance(lfp, nap.Tsd):
+        raise TypeError("lfp must be a pynapple.Tsd.")
+    if epoch is None:
+        epoch = lfp.time_support
+    if not isinstance(epoch, nap.IntervalSet):
+        raise TypeError("epoch must be a pynapple.IntervalSet.")
+    if restrict is not None and not isinstance(restrict, nap.IntervalSet):
+        raise TypeError("restrict must be a pynapple.IntervalSet when provided.")
+    if noise_lfp is not None and not isinstance(noise_lfp, nap.Tsd):
+        raise TypeError("noise_lfp must be a pynapple.Tsd when provided.")
+    if emg is not None and not isinstance(emg, nap.Tsd):
+        raise TypeError("emg must be a pynapple.Tsd when provided.")
+    if stdev is not None and stdev <= 0:
+        raise ValueError("stdev must be positive when provided.")
+
+    low_th, high_th = map(float, params.thresholds)
+    if not (0.0 <= low_th < high_th):
+        raise ValueError("params.thresholds must satisfy 0 <= low < high.")
+    min_inter_ms, max_duration_ms = map(float, params.durations_ms)
+    if min_inter_ms < 0 or max_duration_ms <= 0:
+        raise ValueError("params.durations_ms must be non-negative and positive.")
+    min_duration_s = float(params.min_duration_ms) / 1000.0
+    if min_duration_s < 0:
+        raise ValueError("params.min_duration_ms must be non-negative.")
+    max_duration_s = max_duration_ms / 1000.0
+    if min_duration_s > max_duration_s:
+        raise ValueError("params.min_duration_ms cannot exceed params.durations_ms[1].")
+
+    lfp_epoch = lfp.restrict(epoch)
+    if lfp_epoch.shape[0] < 3:
+        return _empty_find_ripples_output(epoch, params, stdev=stdev)
+
+    fs = float(lfp.rate)
+    baseline_mask: np.ndarray | None = None
+    if restrict is not None:
+        lfp_epoch_times = np.asarray(lfp_epoch.as_units("s").index.values, dtype=float)
+        baseline_mask = _in_intervals(lfp_epoch_times, np.asarray(restrict.as_units("s").values, dtype=float))
+
+    times, filtered, nss, used_stdev = _compute_nss(
+        lfp_epoch,
+        passband=params.passband,
+        fs=fs,
+        filter_order=int(params.filter_order),
+        smooth_window_samples=int(params.smooth_window_samples),
+        baseline_mask=baseline_mask,
+        fixed_std=stdev,
+    )
+    nss_tsd = nap.Tsd(t=times, d=nss, time_support=epoch)
+
+    starts, stops = _threshold_segments(nss > low_th)
+    if starts.size == 0:
+        out = _empty_find_ripples_output(epoch, params, stdev=used_stdev)
+        out["nss"] = nss_tsd
+        return out
+
+    min_inter_samples = int(np.round((min_inter_ms / 1000.0) * fs))
+    starts, stops = _merge_segments(starts, stops, min_inter_samples)
+
+    keep_starts: list[int] = []
+    keep_stops: list[int] = []
+    keep_peaks: list[int] = []
+    keep_peak_power: list[float] = []
+    for start_i, stop_i in zip(starts, stops):
+        segment = slice(int(start_i), int(stop_i) + 1)
+        seg_nss = nss[segment]
+        if seg_nss.shape[0] == 0:
+            continue
+        peak_power = float(np.max(seg_nss))
+        if peak_power <= high_th:
+            continue
+        seg_filtered = filtered[segment]
+        peak_idx = int(start_i + np.argmin(seg_filtered))
+        keep_starts.append(int(start_i))
+        keep_stops.append(int(stop_i))
+        keep_peaks.append(peak_idx)
+        keep_peak_power.append(peak_power)
+
+    if not keep_starts:
+        out = _empty_find_ripples_output(epoch, params, stdev=used_stdev)
+        out["nss"] = nss_tsd
+        return out
+
+    starts_arr = np.asarray(keep_starts, dtype=np.int64)
+    stops_arr = np.asarray(keep_stops, dtype=np.int64)
+    peaks_arr = np.asarray(keep_peaks, dtype=np.int64)
+    peak_power_arr = np.asarray(keep_peak_power, dtype=float)
+
+    start_t = times[starts_arr]
+    stop_t = times[stops_arr]
+    peak_t = times[peaks_arr]
+    duration = stop_t - start_t
+    keep_duration = (duration <= max_duration_s) & (duration >= min_duration_s)
+    starts_arr = starts_arr[keep_duration]
+    stops_arr = stops_arr[keep_duration]
+    peaks_arr = peaks_arr[keep_duration]
+    peak_power_arr = peak_power_arr[keep_duration]
+    start_t = start_t[keep_duration]
+    stop_t = stop_t[keep_duration]
+    peak_t = peak_t[keep_duration]
+
+    if starts_arr.size == 0:
+        out = _empty_find_ripples_output(epoch, params, stdev=used_stdev)
+        out["nss"] = nss_tsd
+        return out
+
+    excluded = np.zeros(starts_arr.shape[0], dtype=bool)
+    if noise_lfp is not None:
+        noise_epoch = noise_lfp.restrict(epoch)
+        if noise_epoch.shape[0] >= 3:
+            noise_times, _, noise_nss, _ = _compute_nss(
+                noise_epoch,
+                passband=params.passband,
+                fs=fs,
+                filter_order=int(params.filter_order),
+                smooth_window_samples=int(params.smooth_window_samples),
+                fixed_std=used_stdev,
+            )
+            for i, (event_start, event_stop) in enumerate(zip(start_t, stop_t)):
+                i0 = int(np.searchsorted(noise_times, event_start, side="left"))
+                i1 = int(np.searchsorted(noise_times, event_stop, side="right"))
+                if i1 > i0 and np.any(noise_nss[i0:i1] > high_th):
+                    excluded[i] = True
+
+    if emg is not None:
+        if emg_threshold is None:
+            emg_threshold = 0.9
+        emg_values = np.asarray(emg.values, dtype=float)
+        emg_times = np.asarray(emg.as_units("s").index.values, dtype=float)
+        if emg_values.size:
+            if emg_values.size == 1:
+                excluded |= emg_values[0] > float(emg_threshold)
+            else:
+                idx = np.searchsorted(emg_times, start_t, side="left")
+                idx = np.clip(idx, 1, emg_times.shape[0] - 1)
+                left = emg_times[idx - 1]
+                right = emg_times[idx]
+                use_left = np.abs(start_t - left) <= np.abs(start_t - right)
+                idx[use_left] -= 1
+                excluded |= emg_values[idx] > float(emg_threshold)
+
+    bad_times = np.empty((0, 4), dtype=float)
+    if np.any(excluded):
+        bad_times = np.column_stack((start_t[excluded], peak_t[excluded], stop_t[excluded], peak_power_arr[excluded]))
+        keep = ~excluded
+        starts_arr = starts_arr[keep]
+        stops_arr = stops_arr[keep]
+        peaks_arr = peaks_arr[keep]
+        peak_power_arr = peak_power_arr[keep]
+        start_t = start_t[keep]
+        stop_t = stop_t[keep]
+        peak_t = peak_t[keep]
+
+    if starts_arr.size == 0:
+        out = _empty_find_ripples_output(epoch, params, stdev=used_stdev)
+        out["noise"] = {
+            "times": bad_times[:, [0, 2]] if bad_times.size else np.empty((0, 2), dtype=float),
+            "peaks": bad_times[:, 1] if bad_times.size else np.array([], dtype=float),
+            "peakNormedPower": bad_times[:, 3] if bad_times.size else np.array([], dtype=float),
+        }
+        out["nss"] = nss_tsd
+        return out
+
+    timestamps = np.column_stack((start_t, stop_t))
+    metadata = pd.DataFrame({"peak_time": peak_t, "peakNormedPower": peak_power_arr})
+    events = nap.IntervalSet(start=timestamps[:, 0], end=timestamps[:, 1], metadata=metadata)
+    peaks_tsd = nap.Tsd(t=peak_t, d=peak_power_arr, time_support=epoch)
+
+    noise = {
+        "times": bad_times[:, [0, 2]] if bad_times.size else np.empty((0, 2), dtype=float),
+        "peaks": bad_times[:, 1] if bad_times.size else np.array([], dtype=float),
+        "peakNormedPower": bad_times[:, 3] if bad_times.size else np.array([], dtype=float),
+    }
+    detectorinfo = {
+        "detectorname": "find_ripples_fmat",
+        "detectiondate": np.datetime64("today").astype(str),
+        "detectionintervals": np.asarray((restrict if restrict is not None else epoch).as_units("s").values, dtype=float),
+        "detectionparms": params.__dict__.copy(),
+        "noisechannel": int(noise_lfp is not None),
+        "emg_threshold": float(np.nan if emg_threshold is None else emg_threshold),
+    }
+    return {
+        "events": events,
+        "peaks_tsd": peaks_tsd,
+        "timestamps": timestamps,
+        "peaks": peak_t,
+        "peakNormedPower": peak_power_arr,
+        "stdev": float(used_stdev),
+        "noise": noise,
+        "nss": nss_tsd,
+        "detectorName": "find_ripples_fmat",
+        "detectorinfo": detectorinfo,
+    }
+
+
+def detect_ripples_fmat(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Alias for `find_ripples_fmat`."""
+    return find_ripples_fmat(*args, **kwargs)
+
+
+def FindRipples(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """MATLAB-compatibility alias for `find_ripples_fmat`."""
+    return find_ripples_fmat(*args, **kwargs)
 
 
 def bandpass_filter(data: nap.Tsd | nap.TsdFrame, lowcut: float, highcut: float, fs: float, order: int = 4) -> nap.Tsd | nap.TsdFrame:
