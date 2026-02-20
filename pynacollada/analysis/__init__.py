@@ -75,6 +75,10 @@ from ..phase_precession import (
     PhasePrecession,
     phase_precession,
 )
+from ..brain_states import (
+    refineSleepFromAccel,
+    refine_sleep_from_accel,
+)
 
 __all__ = [
     "FMATRippleDetectorParams",
@@ -138,4 +142,6 @@ __all__ = [
     "TestSkewness",
     "phase_precession",
     "PhasePrecession",
+    "refine_sleep_from_accel",
+    "refineSleepFromAccel",
 ]

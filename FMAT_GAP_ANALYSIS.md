@@ -84,6 +84,8 @@ Archive policy for this project:
    1. `PhasePrecession` wrapper with FMAT-like output schema
 13. Standardized ripple-event schema:
    1. canonical `IntervalSet` + table + NWB-friendly array adapter
+14. Brain-state helper:
+   1. `refine_sleep_from_accel` (`refineSleepFromAccel` alias) from archive workflow
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -118,7 +120,6 @@ High-value missing functions/classes of functionality:
    1. (no major gaps currently in this subset)
 3. Behavior-specific utility analyses:
    1. `RadialMaze`, `RadialMazeTurns`
-   2. `BrainStates`-adjacent summaries if not delegated elsewhere
 
 ## D. FMAT data/session abstractions not directly mapped
 
