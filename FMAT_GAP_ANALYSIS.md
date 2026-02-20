@@ -98,6 +98,7 @@ Archive policy for this project:
    2. `GetEvents` / `GetEventTypes` regex-query wrappers
 18. FMAT-style parameter IO helpers:
    1. `LoadParameters` and `LoadPar` (XML-based session parameters)
+   2. `LoadPositions` / `GetPositions` first-pass wrappers
 19. FMAT-style LFP data helper:
    1. `GetLFP`/`get_lfp` using `pynapple` `Tsd`/`TsdFrame` outputs
 20. FMAT-style session context helpers:
