@@ -18,10 +18,12 @@ from pynacollada import (
     detect_swr,
     detect_swr_jlong,
     find_ripples_fmat,
+    ripple_event_schema,
     ripple_feature_stats,
     ripple_quality_metrics,
     ripple_spike_coupling,
     ripple_stats,
+    standardize_ripple_events,
 )
 
 
@@ -279,6 +281,22 @@ def test_compute_ripple_quality_metrics_outputs_expected_columns() -> None:
     assert np.isfinite(quality["ripple_to_broadband_ratio"]).any()
     assert np.isfinite(quality["spectral_entropy"]).any()
     np.testing.assert_allclose(quality["duration_s"].values, quality_alias["duration_s"].values)
+
+
+def test_standardize_ripple_events_schema() -> None:
+    lfp, _ = _make_synthetic_lfp()
+    out = detect_swr_jlong(lfp, params=_default_params(), random_seed=0)
+
+    schema = standardize_ripple_events(out)
+    schema_alias = ripple_event_schema(out)
+    schema_arr = standardize_ripple_events(out["timestamps"])
+
+    assert schema["table"].shape[0] == out["timestamps"].shape[0]
+    assert isinstance(schema["events"], nap.IntervalSet)
+    assert {"start", "end", "peak_time", "duration_s", "peak_normed_power"}.issubset(schema["table"].columns)
+    assert schema["nwb"]["start_time"].shape[0] == out["timestamps"].shape[0]
+    assert schema_arr["table"].shape[0] == out["timestamps"].shape[0]
+    np.testing.assert_allclose(schema["table"]["duration_s"].values, schema_alias["table"]["duration_s"].values)
 
 
 def test_compute_ripple_spike_coupling() -> None:

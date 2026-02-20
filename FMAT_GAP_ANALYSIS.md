@@ -81,6 +81,8 @@ Archive policy for this project:
    3. `TestSkewness` distribution-change test
 12. Phase-precession analysis:
    1. `PhasePrecession` wrapper with FMAT-like output schema
+13. Standardized ripple-event schema:
+   1. canonical `IntervalSet` + table + NWB-friendly array adapter
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -94,7 +96,7 @@ FMAT references:
 
 What remains missing after current SWR detector:
 
-1. standardized ripple-centric outputs suitable for downstream population analyses.
+1. (no major gaps currently in this subset)
 
 ## B. FMAT `General` analytics not fully represented
 

@@ -1052,6 +1052,77 @@ def _coerce_peak_times(ripples: Any, events: np.ndarray, peaks: np.ndarray | Non
     return peaks_arr
 
 
+def _coerce_peak_power(ripples: Any, n_events: int, peak_power: np.ndarray | None = None) -> np.ndarray:
+    if peak_power is not None:
+        arr = np.asarray(peak_power, dtype=float).reshape(-1)
+    elif isinstance(ripples, dict) and "peakNormedPower" in ripples:
+        arr = np.asarray(ripples["peakNormedPower"], dtype=float).reshape(-1)
+    elif isinstance(ripples, dict) and "peaks_tsd" in ripples and isinstance(ripples["peaks_tsd"], nap.Tsd):
+        arr = np.asarray(ripples["peaks_tsd"].values, dtype=float).reshape(-1)
+    else:
+        arr = np.full(n_events, np.nan, dtype=float)
+    if arr.shape[0] != n_events:
+        return np.full(n_events, np.nan, dtype=float)
+    return arr
+
+
+def standardize_ripple_events(
+    ripples: Any,
+    *,
+    peaks: np.ndarray | None = None,
+    peak_power: np.ndarray | None = None,
+    time_support: nap.IntervalSet | None = None,
+) -> dict[str, Any]:
+    """
+    Standardize ripple detections into a consistent schema.
+
+    Returns a dictionary with:
+    - `events`: `nap.IntervalSet` with metadata
+    - `table`: pandas DataFrame
+    - `nwb`: dict of aligned arrays suitable for interval writing
+    """
+    events_arr = _coerce_events_array(ripples)
+    if events_arr.shape[0] == 0:
+        empty_ep = nap.IntervalSet(start=np.array([], dtype=float), end=np.array([], dtype=float))
+        empty_table = pd.DataFrame(columns=["start", "end", "peak_time", "duration_s", "peak_normed_power"])
+        return {
+            "events": empty_ep,
+            "table": empty_table,
+            "nwb": {
+                "start_time": np.array([], dtype=float),
+                "stop_time": np.array([], dtype=float),
+                "peak_time": np.array([], dtype=float),
+                "duration_s": np.array([], dtype=float),
+                "peak_normed_power": np.array([], dtype=float),
+            },
+        }
+
+    peak_times = _coerce_peak_times(ripples, events_arr, peaks=peaks)
+    peak_power_arr = _coerce_peak_power(ripples, events_arr.shape[0], peak_power=peak_power)
+    durations = events_arr[:, 1] - events_arr[:, 0]
+    table = pd.DataFrame(
+        {
+            "start": events_arr[:, 0],
+            "end": events_arr[:, 1],
+            "peak_time": peak_times,
+            "duration_s": durations,
+            "peak_normed_power": peak_power_arr,
+        }
+    )
+    metadata = table[["peak_time", "duration_s", "peak_normed_power"]].copy()
+    if time_support is None:
+        time_support = nap.IntervalSet(start=np.min(events_arr[:, 0]), end=np.max(events_arr[:, 1]))
+    events = nap.IntervalSet(start=events_arr[:, 0], end=events_arr[:, 1], metadata=metadata)
+    nwb = {
+        "start_time": np.asarray(table["start"].values, dtype=float),
+        "stop_time": np.asarray(table["end"].values, dtype=float),
+        "peak_time": np.asarray(table["peak_time"].values, dtype=float),
+        "duration_s": np.asarray(table["duration_s"].values, dtype=float),
+        "peak_normed_power": np.asarray(table["peak_normed_power"].values, dtype=float),
+    }
+    return {"events": events, "table": table, "nwb": nwb, "time_support": time_support}
+
+
 def _event_aligned_matrix(tsd: nap.Tsd, peak_times: np.ndarray, durations: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
     if peak_times.size == 0:
         return np.empty((0, 0), dtype=float), np.array([], dtype=float)
@@ -1621,6 +1692,11 @@ def ripple_stats(*args: Any, **kwargs: Any) -> pd.DataFrame:
 def ripple_feature_stats(*args: Any, **kwargs: Any) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
     """Alias for `compute_ripple_feature_stats`."""
     return compute_ripple_feature_stats(*args, **kwargs)
+
+
+def ripple_event_schema(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Alias for `standardize_ripple_events`."""
+    return standardize_ripple_events(*args, **kwargs)
 
 
 def ripple_quality_metrics(*args: Any, **kwargs: Any) -> pd.DataFrame:
