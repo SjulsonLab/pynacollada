@@ -12,6 +12,17 @@ from .swr import (
     ripple_feature_stats,
     ripple_stats,
 )
+from .circular_stats import (
+    CircularConfidenceIntervals,
+    CircularRegression,
+    CircularVariance,
+    Concentration,
+    circular_confidence_intervals,
+    circular_mean,
+    circular_regression,
+    circular_variance,
+    concentration,
+)
 
 __all__ = [
     "SWRDetectorParams",
@@ -24,4 +35,13 @@ __all__ = [
     "compute_ripple_event_stats",
     "ripple_feature_stats",
     "ripple_stats",
+    "circular_mean",
+    "circular_variance",
+    "concentration",
+    "circular_confidence_intervals",
+    "circular_regression",
+    "CircularVariance",
+    "Concentration",
+    "CircularConfidenceIntervals",
+    "CircularRegression",
 ]
