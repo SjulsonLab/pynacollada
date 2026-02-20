@@ -94,6 +94,7 @@ from .io import (
     LoadEvents,
     GetLFP,
     GetCurrentSession,
+    GetAngles,
     GetChannels,
     GetEvents,
     GetEventTypes,
@@ -112,6 +113,7 @@ from .io import (
     load_events,
     get_lfp,
     get_channels,
+    get_angles,
     get_events,
     get_event_types,
     get_units,
@@ -234,4 +236,6 @@ __all__ = [
     "get_units",
     "GetChannels",
     "GetUnits",
+    "get_angles",
+    "GetAngles",
 ]

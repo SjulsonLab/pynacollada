@@ -103,6 +103,7 @@ Archive policy for this project:
 20. FMAT-style session context helpers:
    1. `SetCurrentSession`/`GetCurrentSession` compatibility wrappers
    2. `GetChannels` / `GetUnits` wrappers
+   3. `GetAngles` helper from two-LED positions
 21. FMAT-style spike-time helpers:
    1. `LoadSpikeTimes` and `GetSpikeTimes` from `.res/.clu` files
    2. `GetSpikes` first-pass wrapper:

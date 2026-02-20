@@ -54,6 +54,10 @@ from .units import (
     get_channels,
     get_units,
 )
+from .angles import (
+    GetAngles,
+    get_angles,
+)
 
 __all__ = [
     "load_binary",
@@ -94,4 +98,6 @@ __all__ = [
     "get_units",
     "GetChannels",
     "GetUnits",
+    "get_angles",
+    "GetAngles",
 ]
