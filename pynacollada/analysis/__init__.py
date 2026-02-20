@@ -86,6 +86,12 @@ from ..radial_maze import (
     radial_maze,
     radial_maze_turns,
 )
+from ..io import (
+    LoadBinary,
+    LoadBinaryChunk,
+    load_binary,
+    load_binary_chunk,
+)
 
 __all__ = [
     "FMATRippleDetectorParams",
@@ -156,4 +162,8 @@ __all__ = [
     "estimate_performance_chance_levels",
     "RadialMaze",
     "RadialMazeTurns",
+    "load_binary",
+    "load_binary_chunk",
+    "LoadBinary",
+    "LoadBinaryChunk",
 ]
