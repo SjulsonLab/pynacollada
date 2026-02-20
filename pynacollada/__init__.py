@@ -1,6 +1,6 @@
 """pynacollada public API."""
 
-from .swr import (
+from .FMA_toolbox.swr import (
     FMATRippleDetectorParams,
     FindRipples,
     SWRDetectorParams,
@@ -22,7 +22,7 @@ from .swr import (
     ripple_spike_coupling,
     ripple_stats,
 )
-from .circular_stats import (
+from .FMA_toolbox.circular_stats import (
     BartlettTest,
     CircularANOVA,
     CircularConfidenceIntervals,
@@ -45,7 +45,7 @@ from .circular_stats import (
     concentration,
     watson_u2_test,
 )
-from .transforms import (
+from .FMA_toolbox.transforms import (
     AdaptiveSmooth,
     CircularShift,
     DistanceTransform,
@@ -53,17 +53,17 @@ from .transforms import (
     circular_shift,
     distance_transform,
 )
-from .spike_cycle import (
+from .FMA_toolbox.spike_cycle import (
     CountSpikesPerCycle,
     SelectSpikes,
     count_spikes_per_cycle,
     select_spikes,
 )
-from .ccg_fit import (
+from .FMA_toolbox.ccg_fit import (
     FitCCG,
     fit_ccg,
 )
-from .remapping import (
+from .FMA_toolbox.remapping import (
     FieldShift,
     TestRemapping,
     TestSkewness,
@@ -71,15 +71,15 @@ from .remapping import (
     test_remapping,
     test_skewness,
 )
-from .phase_precession import (
+from .FMA_toolbox.phase_precession import (
     PhasePrecession,
     phase_precession,
 )
-from .brain_states import (
+from .FMA_toolbox.brain_states import (
     refineSleepFromAccel,
     refine_sleep_from_accel,
 )
-from .radial_maze import (
+from .FMA_toolbox.radial_maze import (
     RadialMaze,
     RadialMazeTurns,
     estimate_performance_chance_levels,

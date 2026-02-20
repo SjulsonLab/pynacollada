@@ -1,12 +1,12 @@
 """Input/output helpers."""
 
-from .binary import (
+from ..FMA_toolbox.io.binary import (
     LoadBinary,
     LoadBinaryChunk,
     load_binary,
     load_binary_chunk,
 )
-from .events import (
+from ..FMA_toolbox.io.events import (
     IsEvents,
     LoadEvents,
     SaveEvents,
@@ -14,17 +14,17 @@ from .events import (
     load_events,
     save_events,
 )
-from .parameters import (
+from ..FMA_toolbox.io.parameters import (
     LoadPar,
     LoadParameters,
     load_par,
     load_parameters,
 )
-from .lfp import (
+from ..FMA_toolbox.io.lfp import (
     GetLFP,
     get_lfp,
 )
-from .session import (
+from ..FMA_toolbox.io.session import (
     ClearCurrentSession,
     GetCurrentSession,
     SessionContext,
@@ -34,7 +34,7 @@ from .session import (
     open_session,
     set_current_session,
 )
-from .spikes import (
+from ..FMA_toolbox.io.spikes import (
     GetSpikes,
     GetSpikeTimes,
     LoadSpikeTimes,
@@ -42,29 +42,29 @@ from .spikes import (
     get_spike_times,
     load_spike_times,
 )
-from .event_query import (
+from ..FMA_toolbox.io.event_query import (
     GetEvents,
     GetEventTypes,
     get_events,
     get_event_types,
 )
-from .units import (
+from ..FMA_toolbox.io.units import (
     GetChannels,
     GetUnits,
     get_channels,
     get_units,
 )
-from .angles import (
+from ..FMA_toolbox.io.angles import (
     GetAngles,
     get_angles,
 )
-from .positions import (
+from ..FMA_toolbox.io.positions import (
     GetPositions,
     LoadPositions,
     get_positions,
     load_positions,
 )
-from .spike_metrics import (
+from ..FMA_toolbox.io.spike_metrics import (
     GetSpikeAmplitudes,
     GetSpikeWaveforms,
     get_spike_amplitudes,
