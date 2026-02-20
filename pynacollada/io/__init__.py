@@ -20,6 +20,10 @@ from .parameters import (
     load_par,
     load_parameters,
 )
+from .lfp import (
+    GetLFP,
+    get_lfp,
+)
 
 __all__ = [
     "load_binary",
@@ -36,4 +40,6 @@ __all__ = [
     "load_par",
     "LoadParameters",
     "LoadPar",
+    "get_lfp",
+    "GetLFP",
 ]

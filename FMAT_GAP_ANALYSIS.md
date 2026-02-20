@@ -97,6 +97,8 @@ Archive policy for this project:
    1. `LoadEvents` and `SaveEvents`
 18. FMAT-style parameter IO helpers:
    1. `LoadParameters` and `LoadPar` (XML-based session parameters)
+19. FMAT-style LFP data helper:
+   1. `GetLFP`/`get_lfp` using `pynapple` `Tsd`/`TsdFrame` outputs
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -135,7 +137,7 @@ High-value missing functions/classes of functionality:
 ## D. FMAT data/session abstractions not directly mapped
 
 FMAT’s `Data` and `IO` layers include session-global state and specific loader conventions (`SetCurrentSession`, `GetSpikes`, `LoadBinaryChunk`, etc.).  
-`pynapple` already has modern loaders; `pynacollada` now provides FMAT-compatible binary/event readers and XML parameter loading, but most session-global convenience wrappers are still absent.
+`pynapple` already has modern loaders; `pynacollada` now provides FMAT-compatible binary/event readers, XML parameter loading, and an LFP convenience loader, but most session-global convenience wrappers are still absent.
 
 ## E. Plot/database ecosystems (likely non-goals)
 
