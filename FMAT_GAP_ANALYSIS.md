@@ -86,6 +86,9 @@ Archive policy for this project:
    1. canonical `IntervalSet` + table + NWB-friendly array adapter
 14. Brain-state helper:
    1. `refine_sleep_from_accel` (`refineSleepFromAccel` alias) from archive workflow
+15. Radial-maze behavior analyses:
+   1. `RadialMaze` core measures and transformed indices
+   2. `RadialMazeTurns` turn-angle distributions (`good`/`preferred`/`non-preferred`)
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -119,7 +122,7 @@ High-value missing functions/classes of functionality:
 2. Spike-process modeling helpers:
    1. (no major gaps currently in this subset)
 3. Behavior-specific utility analyses:
-   1. `RadialMaze`, `RadialMazeTurns`
+   1. (no major gaps currently in this subset)
 
 ## D. FMAT data/session abstractions not directly mapped
 

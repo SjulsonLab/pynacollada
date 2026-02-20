@@ -79,6 +79,13 @@ from .brain_states import (
     refineSleepFromAccel,
     refine_sleep_from_accel,
 )
+from .radial_maze import (
+    RadialMaze,
+    RadialMazeTurns,
+    estimate_performance_chance_levels,
+    radial_maze,
+    radial_maze_turns,
+)
 
 __all__ = [
     "FMATRippleDetectorParams",
@@ -144,4 +151,9 @@ __all__ = [
     "PhasePrecession",
     "refine_sleep_from_accel",
     "refineSleepFromAccel",
+    "radial_maze",
+    "radial_maze_turns",
+    "estimate_performance_chance_levels",
+    "RadialMaze",
+    "RadialMazeTurns",
 ]
