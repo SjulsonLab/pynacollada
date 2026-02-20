@@ -109,6 +109,7 @@ Archive policy for this project:
       1. `.spikes.cellinfo.mat` loading with per-unit metadata preservation
       2. `.res/.clu` fallback path
       3. optional mean-waveform extraction from `.dat` for `.res/.clu` sources
+      4. unit-level filtering (`units`, `UID`, `region`)
 
 ## FMAT functionality still missing (high-value gaps)
 

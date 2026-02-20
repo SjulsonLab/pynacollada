@@ -3,6 +3,7 @@ from __future__ import annotations
 import textwrap
 
 import numpy as np
+import pytest
 from scipy.io import savemat
 
 from pynacollada import (
@@ -176,6 +177,24 @@ def test_get_spikes_cellinfo_unit_filtering(tmp_path) -> None:
     alias_struct = GetSpikes(basePath=session, source="cellinfo")
     assert isinstance(alias_struct, dict)
     assert alias_struct["source"] == "cellinfo"
+
+
+def test_get_spikes_uid_and_region_filters(tmp_path) -> None:
+    session = tmp_path / "sessionSpk"
+    session.mkdir()
+    _write_session(session)
+    _write_cellinfo(session)
+
+    by_uid = get_spikes(base_path=session, source="cellinfo", uid=[20], as_tsgroup=False)
+    assert by_uid["numcells"] == 1
+    np.testing.assert_array_equal(by_uid["UID"], np.array([20], dtype=int))
+
+    by_region = get_spikes(base_path=session, source="cellinfo", region="CA3", as_tsgroup=False)
+    assert by_region["numcells"] == 1
+    np.testing.assert_array_equal(by_region["shankID"], np.array([2], dtype=int))
+
+    with pytest.raises(ValueError):
+        get_spikes(base_path=session, source="clu", region="CA1", as_tsgroup=False)
 
 
 def test_get_spikes_waveform_extraction_from_dat(tmp_path) -> None:

@@ -262,6 +262,33 @@ def _apply_units_filter(spikes: dict[str, Any], units: np.ndarray | list[list[in
     return _subset_spike_units(spikes, selected)
 
 
+def _apply_uid_region_filter(
+    spikes: dict[str, Any],
+    *,
+    uid: np.ndarray | list[int] | tuple[int, ...] | None,
+    region: str | None,
+) -> dict[str, Any]:
+    n_units = int(np.asarray(spikes.get("UID", [])).reshape(-1).size)
+    if n_units == 0:
+        return spikes
+    mask = np.ones(n_units, dtype=bool)
+
+    if uid is not None and np.asarray(uid).size > 0:
+        requested_uid = np.asarray(uid, dtype=int).reshape(-1)
+        uid_values = np.asarray(spikes.get("UID", []), dtype=int).reshape(-1)
+        mask &= np.isin(uid_values, requested_uid)
+
+    if region is not None and str(region).strip():
+        if "region" not in spikes:
+            raise ValueError("region filtering requested but spike metadata has no region field.")
+        regions = np.asarray(spikes["region"], dtype=object).reshape(-1)
+        if regions.size != n_units:
+            raise ValueError("region metadata length does not match number of units.")
+        mask &= np.array([str(r) == str(region) for r in regions], dtype=bool)
+
+    return _subset_spike_units(spikes, mask)
+
+
 def _spikes_to_tsgroup(spikes: dict[str, Any]) -> nap.TsGroup:
     uid = np.asarray(spikes.get("UID", []), dtype=int).reshape(-1)
     times = [np.asarray(t, dtype=float).reshape(-1) for t in spikes.get("times", [])]
@@ -596,6 +623,8 @@ def get_spike_times(
 def get_spikes(
     units: np.ndarray | list[list[int]] | None = None,
     *,
+    uid: np.ndarray | list[int] | tuple[int, ...] | None = None,
+    region: str | None = None,
     base_path: str | Path | None = None,
     basename: str | None = None,
     rate: float | None = None,
@@ -667,6 +696,7 @@ def get_spikes(
         spikes = _spikes_struct_from_full(full, resolved_rate)
 
     spikes = _apply_units_filter(spikes, units)
+    spikes = _apply_uid_region_filter(spikes, uid=uid, region=region)
     if "samplingRate" not in spikes:
         spikes["samplingRate"] = float(rate_value) if np.isfinite(rate_value) else np.nan
 
@@ -733,6 +763,8 @@ def GetSpikes(
         units = None
     options = _collect_options(args, kwargs)
     mapped = {
+        "uid": options.pop("uid", options.pop("UID", None)),
+        "region": options.pop("region", None),
         "base_path": options.pop("basepath", options.pop("base_path", None)),
         "basename": options.pop("basename", None),
         "rate": options.pop("rate", None),
