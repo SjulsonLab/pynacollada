@@ -67,6 +67,10 @@ from .remapping import (
     test_remapping,
     test_skewness,
 )
+from .phase_precession import (
+    PhasePrecession,
+    phase_precession,
+)
 
 __all__ = [
     "FMATRippleDetectorParams",
@@ -124,4 +128,6 @@ __all__ = [
     "FieldShift",
     "TestRemapping",
     "TestSkewness",
+    "phase_precession",
+    "PhasePrecession",
 ]

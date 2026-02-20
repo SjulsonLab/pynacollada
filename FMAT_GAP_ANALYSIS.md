@@ -79,6 +79,8 @@ Archive policy for this project:
    1. `FieldShift` (linear/circular mode)
    2. `TestRemapping` bootstrap against random-remapping null
    3. `TestSkewness` distribution-change test
+12. Phase-precession analysis:
+   1. `PhasePrecession` wrapper with FMAT-like output schema
 
 ## FMAT functionality still missing (high-value gaps)
 
@@ -108,7 +110,7 @@ High-value missing functions/classes of functionality:
 ## C. FMAT `Analyses` gaps (beyond what `pynapple` provides)
 
 1. Place/phase derived analyses not fully matched by dedicated APIs:
-   1. `PhasePrecession` wrappers with FMAT-like summary outputs
+   1. (no major gaps currently in this subset)
 2. Spike-process modeling helpers:
    1. (no major gaps currently in this subset)
 3. Behavior-specific utility analyses:
