@@ -45,6 +45,10 @@ Archive policy for this project:
 2. Ripple post-detection event statistics:
    1. per-event duration/amplitude/rms/dominant-frequency summaries
    2. optional pooled spike-count summaries
+3. FMAT/buzcode-style ripple descriptive maps/stats:
+   1. instantaneous ripple/frequency/phase/amplitude maps aligned to ripple peaks
+   2. peak amplitude/frequency and duration outputs
+   3. ripple peak autocorrelogram and pairwise summary correlations
 
 ## FMAT functionality still missing (high-value gaps)
 

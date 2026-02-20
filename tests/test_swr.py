@@ -5,11 +5,14 @@ import pynapple as nap
 
 from pynacollada import (
     SWRDetectorParams,
+    bandpass_filter,
+    compute_ripple_feature_stats,
     detect_oscillatory_events,
     detect_ripples_nss,
     compute_ripple_event_stats,
     detect_swr,
     detect_swr_jlong,
+    ripple_feature_stats,
     ripple_stats,
 )
 
@@ -146,3 +149,29 @@ def test_archive_backed_nss_detection_api() -> None:
 
     np.testing.assert_allclose(ep1.as_units("s").values, ep2.as_units("s").values)
     np.testing.assert_allclose(peaks1.as_units("s").index.values, peaks2.as_units("s").index.values)
+
+
+def test_compute_ripple_feature_stats_maps_data_stats() -> None:
+    lfp, _ = _make_synthetic_lfp()
+    out = detect_swr_jlong(lfp, params=_default_params(), random_seed=0)
+    filtered = bandpass_filter(lfp[:, 0], 100.0, 250.0, lfp.rate)
+
+    maps, data, stats = compute_ripple_feature_stats(filtered, out, durations=(-0.05, 0.05))
+    maps_alias, data_alias, stats_alias = ripple_feature_stats(filtered, out, durations=(-0.05, 0.05))
+
+    assert maps["ripples"].shape[0] == out["timestamps"].shape[0]
+    assert maps["frequency"].shape == maps["ripples"].shape
+    assert maps["phase"].shape == maps["ripples"].shape
+    assert maps["amplitude"].shape == maps["ripples"].shape
+    assert maps["t"].shape[0] == maps["ripples"].shape[1]
+    assert data["peakFrequency"].shape[0] == out["timestamps"].shape[0]
+    assert data["peakAmplitude"].shape[0] == out["timestamps"].shape[0]
+    assert data["duration"].shape[0] == out["timestamps"].shape[0]
+    assert "acg" in stats and "data" in stats["acg"] and "t" in stats["acg"]
+    assert "amplitudeFrequency" in stats
+    assert "durationFrequency" in stats
+    assert "durationAmplitude" in stats
+
+    np.testing.assert_allclose(maps["ripples"], maps_alias["ripples"])
+    np.testing.assert_allclose(data["duration"], data_alias["duration"])
+    np.testing.assert_allclose(stats["acg"]["data"], stats_alias["acg"]["data"])

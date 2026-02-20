@@ -8,7 +8,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pynapple as nap
-from scipy.signal import lfilter, savgol_filter, welch
+from scipy.signal import hilbert, lfilter, savgol_filter, welch
+from scipy.stats import pearsonr
 from sklearn.cluster import KMeans
 
 from .archive.eeg_processing.eeg_processing import (
@@ -703,6 +704,176 @@ def _coerce_events_array(ripples: Any) -> np.ndarray:
     return arr
 
 
+def _coerce_peak_times(ripples: Any, events: np.ndarray, peaks: np.ndarray | None = None) -> np.ndarray:
+    if peaks is not None:
+        peaks_arr = np.asarray(peaks, dtype=float).reshape(-1)
+    elif isinstance(ripples, dict) and "peaks" in ripples:
+        peaks_arr = np.asarray(ripples["peaks"], dtype=float).reshape(-1)
+    elif isinstance(ripples, dict) and "peaks_tsd" in ripples and isinstance(ripples["peaks_tsd"], nap.Tsd):
+        peaks_arr = np.asarray(ripples["peaks_tsd"].as_units("s").index.values, dtype=float).reshape(-1)
+    else:
+        peaks_arr = np.mean(events, axis=1)
+
+    if peaks_arr.shape[0] != events.shape[0]:
+        return np.mean(events, axis=1)
+    return peaks_arr
+
+
+def _event_aligned_matrix(tsd: nap.Tsd, peak_times: np.ndarray, durations: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
+    if peak_times.size == 0:
+        return np.empty((0, 0), dtype=float), np.array([], dtype=float)
+    ref = nap.Ts(t=peak_times, time_support=tsd.time_support)
+    aligned = nap.compute_perievent_continuous(tsd, ref, durations, time_unit="s")
+    if not isinstance(aligned, nap.TsdFrame):
+        return np.empty((0, 0), dtype=float), np.array([], dtype=float)
+    values = np.asarray(aligned.values, dtype=float)
+    return values.T, np.asarray(aligned.index.values, dtype=float)
+
+
+def _nearest_indices(times: np.ndarray, query: np.ndarray) -> np.ndarray:
+    idx = np.searchsorted(times, query, side="left")
+    idx = np.clip(idx, 1, times.shape[0] - 1)
+    left = times[idx - 1]
+    right = times[idx]
+    use_left = np.abs(query - left) <= np.abs(right - query)
+    idx[use_left] = idx[use_left] - 1
+    return idx
+
+
+def _autocorrelogram(peak_times: np.ndarray, bin_size: float, duration: float) -> tuple[np.ndarray, np.ndarray]:
+    if peak_times.size == 0:
+        return np.array([], dtype=float), np.array([], dtype=float)
+    peak_times = np.sort(np.asarray(peak_times, dtype=float))
+    edges = np.arange(-duration, duration + bin_size, bin_size, dtype=float)
+    if edges.size < 2:
+        raise ValueError("corr_bin_size/corr_duration produce invalid histogram bins.")
+    counts = np.zeros(edges.size - 1, dtype=float)
+    for i in range(peak_times.size):
+        delta = peak_times - peak_times[i]
+        keep = (delta >= -duration) & (delta <= duration) & (delta != 0.0)
+        if np.any(keep):
+            hist, _ = np.histogram(delta[keep], bins=edges)
+            counts += hist
+    centers = (edges[:-1] + edges[1:]) / 2.0
+    return counts, centers
+
+
+def _corr_pair(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    if x.shape[0] < 2 or y.shape[0] < 2:
+        return np.nan, np.nan
+    if np.allclose(np.std(x), 0.0) or np.allclose(np.std(y), 0.0):
+        return np.nan, np.nan
+    r, p = pearsonr(x, y)
+    return float(r), float(p)
+
+
+def compute_ripple_feature_stats(
+    filtered: nap.Tsd,
+    ripples: Any,
+    *,
+    peaks: np.ndarray | None = None,
+    durations: tuple[float, float] = (-0.075, 0.075),
+    corr_bin_size: float = 0.01,
+    corr_duration: float = 0.5,
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
+    """
+    Compute FMAT/buzcode-style ripple `maps`, `data`, and `stats`.
+
+    Parameters
+    ----------
+    filtered
+        Ripple-band filtered single-channel signal as `nap.Tsd`.
+    ripples
+        Ripple events as detector output dict, `IntervalSet`, or `Nx2` array.
+    peaks
+        Optional peak times overriding values derived from `ripples`.
+    durations
+        Window around each peak in seconds `(start, end)`.
+    corr_bin_size
+        Autocorrelogram bin size in seconds.
+    corr_duration
+        Autocorrelogram half-window in seconds.
+    """
+    if not isinstance(filtered, nap.Tsd):
+        raise TypeError("filtered must be a pynapple.Tsd.")
+    if durations[0] >= durations[1]:
+        raise ValueError("durations must be an increasing (start, end) tuple.")
+
+    tsd = filtered
+    tsd_s = tsd.as_units("s")
+    times = np.asarray(tsd_s.index.values, dtype=float)
+    signal = np.asarray(tsd_s.values, dtype=float)
+    events = _coerce_events_array(ripples)
+    if events.shape[0] == 0 or signal.size < 3:
+        empty_maps = {
+            "ripples": np.empty((0, 0), dtype=float),
+            "frequency": np.empty((0, 0), dtype=float),
+            "phase": np.empty((0, 0), dtype=float),
+            "amplitude": np.empty((0, 0), dtype=float),
+            "t": np.array([], dtype=float),
+        }
+        empty_data = {
+            "peakFrequency": np.array([], dtype=float),
+            "peakAmplitude": np.array([], dtype=float),
+            "duration": np.array([], dtype=float),
+        }
+        empty_stats: dict[str, Any] = {
+            "acg": {"data": np.array([], dtype=float), "t": np.array([], dtype=float)},
+            "amplitudeFrequency": {"rho": np.nan, "p": np.nan},
+            "durationFrequency": {"rho": np.nan, "p": np.nan},
+            "durationAmplitude": {"rho": np.nan, "p": np.nan},
+        }
+        return empty_maps, empty_data, empty_stats
+
+    peak_times = _coerce_peak_times(ripples, events, peaks=peaks)
+
+    h = hilbert(signal)
+    phase = np.angle(h)
+    amplitude = np.abs(h)
+    unwrapped = np.unwrap(phase)
+    dt = float(np.median(np.diff(times)))
+    inst_frequency = np.gradient(unwrapped, dt) / (2.0 * np.pi)
+
+    freq_tsd = nap.Tsd(t=times, d=inst_frequency, time_support=tsd.time_support)
+    phase_tsd = nap.Tsd(t=times, d=phase, time_support=tsd.time_support)
+    amp_tsd = nap.Tsd(t=times, d=amplitude, time_support=tsd.time_support)
+
+    map_ripples, t_aligned = _event_aligned_matrix(tsd, peak_times, durations)
+    map_frequency, _ = _event_aligned_matrix(freq_tsd, peak_times, durations)
+    map_phase, _ = _event_aligned_matrix(phase_tsd, peak_times, durations)
+    map_amplitude, _ = _event_aligned_matrix(amp_tsd, peak_times, durations)
+
+    peak_idx = _nearest_indices(times, peak_times)
+    peak_frequency = inst_frequency[peak_idx]
+    peak_amplitude = amplitude[peak_idx]
+    duration = events[:, 1] - events[:, 0]
+
+    acg_data, acg_t = _autocorrelogram(peak_times, corr_bin_size, corr_duration)
+    rho_af, p_af = _corr_pair(peak_amplitude, peak_frequency)
+    rho_df, p_df = _corr_pair(duration, peak_frequency)
+    rho_da, p_da = _corr_pair(duration, peak_amplitude)
+
+    maps = {
+        "ripples": map_ripples,
+        "frequency": map_frequency,
+        "phase": map_phase,
+        "amplitude": map_amplitude,
+        "t": t_aligned,
+    }
+    data = {
+        "peakFrequency": peak_frequency,
+        "peakAmplitude": peak_amplitude,
+        "duration": duration,
+    }
+    stats: dict[str, Any] = {
+        "acg": {"data": acg_data, "t": acg_t},
+        "amplitudeFrequency": {"rho": rho_af, "p": p_af},
+        "durationFrequency": {"rho": rho_df, "p": p_df},
+        "durationAmplitude": {"rho": rho_da, "p": p_da},
+    }
+    return maps, data, stats
+
+
 def compute_ripple_event_stats(
     lfp: nap.Tsd | nap.TsdFrame,
     ripples: Any,
@@ -821,3 +992,8 @@ def detect_swr(*args: Any, **kwargs: Any) -> dict[str, Any]:
 def ripple_stats(*args: Any, **kwargs: Any) -> pd.DataFrame:
     """Alias for `compute_ripple_event_stats`."""
     return compute_ripple_event_stats(*args, **kwargs)
+
+
+def ripple_feature_stats(*args: Any, **kwargs: Any) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
+    """Alias for `compute_ripple_feature_stats`."""
+    return compute_ripple_feature_stats(*args, **kwargs)
